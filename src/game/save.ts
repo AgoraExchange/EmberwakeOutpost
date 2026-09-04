@@ -1,0 +1,160 @@
+import { createDefaultSave } from './rules';
+import type { SaveData, Settings, UpgradeId } from './types';
+import { UPGRADES } from './config';
+
+const DB_NAME = 'emberwake-outpost';
+const STORE_NAME = 'saves';
+const SAVE_KEY = 'primary';
+const FALLBACK_KEY = 'emberwake-save-v2';
+
+interface LegacySaveV1 {
+  version: 1;
+  coins?: number;
+  cash?: number;
+  levels?: Partial<Record<UpgradeId, number>>;
+  upgrades?: Partial<Record<UpgradeId, number>>;
+  zone2?: boolean;
+  tutorial?: SaveData['tutorial'];
+  settings?: Partial<Settings>;
+}
+
+function finiteNumber(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+/** Keeps a saved call-sign compact, readable, and safe to render in UI text. */
+export function normalizeTrailwardenName(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return [...value]
+    .filter(character => {
+      const code = character.charCodeAt(0);
+      return code >= 32 && code !== 127;
+    })
+    .join('')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .slice(0, 18);
+}
+
+export function migrateSave(input: unknown): SaveData {
+  const defaults = createDefaultSave();
+  if (!input || typeof input !== 'object') return defaults;
+  const source = input as Partial<SaveData> & LegacySaveV1;
+
+  if (source.version === 1) {
+    const legacyLevels = source.upgrades ?? source.levels ?? {};
+    for (const config of UPGRADES) {
+      defaults.upgrades[config.id] = Math.max(0, Math.min(config.maxLevel, Math.floor(finiteNumber(legacyLevels[config.id], 0))));
+    }
+    defaults.cash = Math.max(0, Math.floor(finiteNumber(source.cash ?? source.coins, 0)));
+    defaults.unlocks.zone2 = Boolean(source.zone2);
+    defaults.tutorial = source.tutorial ?? defaults.tutorial;
+    defaults.settings = { ...defaults.settings, ...source.settings };
+    return defaults;
+  }
+
+  if (source.version !== 2 && source.version !== 3 && source.version !== 4) return defaults;
+  const next = structuredClone(defaults);
+  next.updatedAt = finiteNumber(source.updatedAt, Date.now());
+  next.trailwardenName = normalizeTrailwardenName(source.trailwardenName);
+  next.cash = Math.max(0, Math.floor(finiteNumber(source.cash, 0)));
+  for (const config of UPGRADES) {
+    next.upgrades[config.id] = Math.max(0, Math.min(config.maxLevel, Math.floor(finiteNumber(source.upgrades?.[config.id], 0))));
+  }
+  next.unlocks = { ...defaults.unlocks, ...(source.unlocks ?? {}) };
+  next.station = {
+    rawMeat: Math.max(0, Math.floor(finiteNumber(source.station?.rawMeat, 0))),
+    meals: Math.max(0, Math.floor(finiteNumber(source.station?.meals, 0))),
+    rawFish: Math.max(0, Math.floor(finiteNumber(source.station?.rawFish, 0))),
+    fishMeals: Math.max(0, Math.floor(finiteNumber(source.station?.fishMeals, 0))),
+    butcherProgress: Math.max(0, finiteNumber(source.station?.butcherProgress, 0)),
+    fishProgress: Math.max(0, finiteNumber(source.station?.fishProgress, 0))
+  };
+  next.tutorial = source.tutorial ?? defaults.tutorial;
+  next.stats = {
+    bearsDefeated: Math.max(0, Math.floor(finiteNumber(source.stats?.bearsDefeated, 0))),
+    totalCashEarned: Math.max(0, Math.floor(finiteNumber(source.stats?.totalCashEarned, 0))),
+    mealsSold: Math.max(0, Math.floor(finiteNumber(source.stats?.mealsSold, 0))),
+    fishCaught: Math.max(0, Math.floor(finiteNumber(source.stats?.fishCaught, 0))),
+    deaths: Math.max(0, Math.floor(finiteNumber(source.stats?.deaths, 0))),
+    raidsWon: Math.max(0, Math.floor(finiteNumber(source.stats?.raidsWon, 0))),
+    playSeconds: Math.max(0, finiteNumber(source.stats?.playSeconds, 0)),
+    // Added after v2. Absent in older saves, which migrate in at zero.
+    woodChopped: Math.max(0, Math.floor(finiteNumber(source.stats?.woodChopped, 0))),
+    woodSold: Math.max(0, Math.floor(finiteNumber(source.stats?.woodSold, 0)))
+  };
+  next.settings = { ...defaults.settings, ...(source.settings ?? {}) };
+  return next;
+}
+
+function openDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    if (!('indexedDB' in globalThis)) return reject(new Error('IndexedDB unavailable'));
+    const request = indexedDB.open(DB_NAME, 1);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains(STORE_NAME)) request.result.createObjectStore(STORE_NAME);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error ?? new Error('Unable to open save database'));
+  });
+}
+
+async function idbRead(): Promise<unknown> {
+  const db = await openDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const request = db.transaction(STORE_NAME, 'readonly').objectStore(STORE_NAME).get(SAVE_KEY);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+  } finally { db.close(); }
+}
+
+async function idbWrite(data: SaveData): Promise<void> {
+  const db = await openDatabase();
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const transaction = db.transaction(STORE_NAME, 'readwrite');
+      transaction.objectStore(STORE_NAME).put(data, SAVE_KEY);
+      transaction.oncomplete = () => resolve();
+      transaction.onerror = () => reject(transaction.error);
+      transaction.onabort = () => reject(transaction.error ?? new Error('Save write aborted'));
+    });
+  } finally { db.close(); }
+}
+
+export async function loadSave(): Promise<SaveData> {
+  let raw: unknown;
+  try { raw = await idbRead(); } catch { /* fallback below */ }
+  if (!raw) {
+    try {
+      const text = localStorage.getItem(FALLBACK_KEY);
+      if (text) raw = JSON.parse(text);
+    } catch { /* private browsing can block storage */ }
+  }
+  return migrateSave(raw);
+}
+
+export async function saveProgress(data: SaveData): Promise<void> {
+  const snapshot = migrateSave({ ...data, updatedAt: Date.now() });
+  try { await idbWrite(snapshot); } catch { /* fallback below */ }
+  try { localStorage.setItem(FALLBACK_KEY, JSON.stringify(snapshot)); } catch { /* storage may be unavailable */ }
+}
+
+export function exportSave(data: SaveData): string {
+  return JSON.stringify(migrateSave(data), null, 2);
+}
+
+export function importSave(text: string): SaveData {
+  const parsed: unknown = JSON.parse(text);
+  if (!parsed || typeof parsed !== 'object' || !('version' in parsed)) throw new Error('This file is not an Emberwake save.');
+  const version = (parsed as { version?: unknown }).version;
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4) throw new Error('This save was created by an unsupported Emberwake version.');
+  return migrateSave(parsed);
+}
+
+export async function resetStoredProgress(): Promise<SaveData> {
+  const clean = createDefaultSave();
+  await saveProgress(clean);
+  return clean;
+}

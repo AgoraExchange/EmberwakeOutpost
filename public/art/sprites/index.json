@@ -1,0 +1,13 @@
+[
+  "actor/trailwarden-unarmed",
+  "actor/villager",
+  "actor/worker",
+  "actor/guard",
+  "building/furnace",
+  "building/cookout",
+  "building/mess-hall",
+  "building/timber-post",
+  "creature/rimeback",
+  "creature/icehorn",
+  "prop/tree"
+]

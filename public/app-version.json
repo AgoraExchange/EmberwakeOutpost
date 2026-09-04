@@ -1,0 +1,8 @@
+{
+  "version": "1.0.0",
+  "releasedAt": "2026-09-04",
+  "notes": [
+    "GitHub Pages and iPhone PWA launch release.",
+    "Adds the Emberwake splash, local Trailwarden name, and on-device update checks."
+  ]
+}

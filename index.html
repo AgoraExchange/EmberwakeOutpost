@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no" />
+    <meta name="theme-color" content="#102b3e" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Emberwake" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="format-detection" content="telephone=no" />
+    <link rel="apple-touch-icon" href="%BASE_URL%apple-touch-icon.png" />
+    <title>Emberwake Outpost</title>
+  </head>
+  <body>
+    <div id="game-shell">
+      <div id="canvas-host" aria-label="Emberwake Outpost game world"></div>
+
+      <header id="hud" aria-live="polite">
+        <div class="inventory-bar" aria-label="Carried resources">
+          <div class="hud-resource cash-resource" title="Banked cash" aria-label="Banked cash">
+            <span class="resource-icon" aria-hidden="true"><svg viewBox="0 0 32 24"><rect class="icon-fill" x="2" y="4" width="28" height="17" rx="3"/><path d="M6 8h20v9H6zM16 7v11M12.5 12.5h7"/></svg></span>
+            <span class="hud-value" id="cash-value">0</span>
+          </div>
+          <div class="hud-resource wood-resource" title="Carried logs" aria-label="Carried logs">
+            <span class="resource-icon" aria-hidden="true"><svg viewBox="0 0 32 24"><path class="icon-fill" d="M5 7h21a5 5 0 0 1 0 10H5a5 5 0 0 1 0-10Z"/><ellipse cx="26" cy="12" rx="4" ry="5"/><path d="M24 10.2c1.6.9 1.6 2.7 0 3.6M8 9v6"/></svg></span>
+            <span class="hud-value" id="wood-value">0</span>
+          </div>
+          <div class="hud-resource raw-resource" title="Carried raw food" aria-label="Carried raw food">
+            <span class="resource-icon" aria-hidden="true"><svg viewBox="0 0 32 24"><path class="icon-fill" d="M5 17c-3-3-1-8 3-10 5-3 12-3 17 0 5 3 4 9-1 12-5 3-15 2-19-2Z"/><ellipse cx="12" cy="12" rx="3.5" ry="2.7"/></svg></span>
+            <span class="hud-value" id="raw-food-value">0</span>
+          </div>
+          <div class="hud-resource cooked-resource" title="Carried cooked meals" aria-label="Carried cooked meals">
+            <span class="resource-icon" aria-hidden="true"><svg viewBox="0 0 32 24"><ellipse class="plate" cx="16" cy="15" rx="13" ry="6"/><path class="icon-fill" d="M9 14c2-5 12-6 15 0-3 3-12 4-15 0Z"/><path class="steam" d="M11 7c-2-2 2-3 0-5M17 7c-2-2 2-3 0-5M23 7c-2-2 2-3 0-5"/></svg></span>
+            <span class="hud-value" id="cooked-food-value">0</span>
+          </div>
+        </div>
+        <div class="hud-pill health-pill"><span class="hud-icon" aria-hidden="true">♥</span><span id="health-value">100</span></div>
+        <button id="pause-button" class="icon-button" type="button" aria-label="Pause and settings">Ⅱ</button>
+      </header>
+
+      <section id="objective-card" aria-live="polite">
+        <span id="objective-kicker">FIELD NOTES</span>
+        <span id="objective-text">Drag to move</span>
+      </section>
+
+      <div id="raid-banner" class="hidden" aria-live="assertive"></div>
+      <div id="toast" class="hidden" aria-live="polite"></div>
+      <div id="joystick" class="joystick hidden" aria-hidden="true"><div id="joystick-knob"></div></div>
+
+      <section id="launch-screen" class="modal-screen visible" aria-label="Loading Emberwake Outpost">
+        <div class="launch-sky" aria-hidden="true"></div>
+        <div class="launch-lockup">
+          <span class="launch-mark" aria-hidden="true">✦</span>
+          <p>THE FROSTWILD AWAITS</p>
+          <div class="launch-game-title">EMBERWAKE</div>
+          <div class="launch-game-subtitle">OUTPOST</div>
+          <div id="launch-loader" class="launch-loader hidden" aria-live="polite">
+            <div class="launch-progress-track" role="progressbar" aria-label="Loading the outpost" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><span id="launch-progress"></span></div>
+            <p id="launch-message">Kindling the furnace…</p>
+          </div>
+        </div>
+      </section>
+
+      <section id="start-screen" class="modal-screen visible" aria-labelledby="game-title">
+        <div class="key-art"></div>
+        <div class="title-lockup">
+          <span class="title-mark" aria-hidden="true">✦</span>
+          <p>AN ARCTIC OUTPOST STORY</p>
+          <h1 id="game-title">EMBERWAKE</h1>
+          <h2>OUTPOST</h2>
+          <button id="start-button" class="primary-button" type="button" disabled>LIGHTING THE OUTPOST…</button>
+          <small id="trailwarden-greeting" class="trailwarden-greeting"></small>
+          <small>Best played with sound · Progress saves on this device</small>
+        </div>
+      </section>
+
+      <section id="pause-screen" class="modal-screen" aria-labelledby="pause-title" aria-hidden="true">
+        <div class="panel settings-panel">
+          <div class="panel-heading"><div><p>OUTPOST LOG</p><h2 id="pause-title">Paused</h2></div><button id="resume-button" class="icon-button" type="button" aria-label="Resume">×</button></div>
+          <div class="settings-grid">
+            <label>Master volume <input id="master-volume" type="range" min="0" max="1" step="0.05" /></label>
+            <label>Music & ambience <input id="music-volume" type="range" min="0" max="1" step="0.05" /></label>
+            <label>Sound effects <input id="sfx-volume" type="range" min="0" max="1" step="0.05" /></label>
+            <label class="switch-row">Haptics <input id="haptics-toggle" type="checkbox" /></label>
+            <label class="switch-row">Reduced motion <input id="motion-toggle" type="checkbox" /></label>
+            <label>Graphics quality <select id="quality-select"><option value="high">High · 60 FPS</option><option value="low">Battery · 30 FPS</option></select></label>
+            <label>Joystick <select id="joystick-select"><option value="floating">Floating</option><option value="fixed">Fixed & visible</option></select></label>
+          </div>
+          <div class="save-actions">
+            <button id="export-button" class="secondary-button" type="button">Export save</button>
+            <label class="secondary-button file-button">Import save<input id="import-input" type="file" accept="application/json" /></label>
+            <button id="check-updates-button" class="secondary-button" type="button">Check for updates</button>
+            <button id="reset-button" class="danger-button" type="button">Reset progress</button>
+          </div>
+          <p class="panel-footnote"><span id="app-version">Emberwake 1.0.0</span> · Defeat permanently loses all carried raw food, cooked meals, frostfin plates, and timber. Banked cash survives defeat, but raiders can pillage it after a gate breach.</p>
+        </div>
+      </section>
+
+      <section id="name-screen" class="modal-screen" aria-labelledby="name-title" aria-hidden="true">
+        <form id="name-form" class="panel name-panel">
+          <p class="name-kicker">THE OUTPOST IS LISTENING</p>
+          <h2 id="name-title">What do your villagers call you?</h2>
+          <p>Choose a Trailwarden call-sign. It stays on this device with your saved outpost.</p>
+          <label class="name-field" for="trailwarden-name">Trailwarden name</label>
+          <input id="trailwarden-name" name="trailwarden-name" type="text" maxlength="18" autocomplete="nickname" autocapitalize="words" spellcheck="false" required />
+          <p id="name-error" class="name-error" aria-live="polite"></p>
+          <button class="primary-button" type="submit">TAKE THE WATCH</button>
+        </form>
+      </section>
+
+      <section id="defeat-screen" class="modal-screen" aria-live="assertive" aria-hidden="true">
+        <div class="defeat-card"><p>THE COLD BITES BACK</p><h2>Trailwarden down</h2><div id="defeat-loss"></div><span>Returning to the furnace…</span></div>
+      </section>
+
+      <button id="update-button" class="update-button hidden" type="button">Update ready · Reload</button>
+      <div id="rotate-hint">Portrait view recommended</div>
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
