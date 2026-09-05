@@ -191,19 +191,24 @@ test('the hearth heals gradually, stops outside its boundary, and respects pause
   test.setTimeout(60_000);
   await page.goto('/');
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
-  await page.evaluate(() => {
+  const healingStart = await page.evaluate(() => {
     window.__EMBERWAKE__.teleport(830, 1150);
     window.__EMBERWAKE__.damagePlayer(20);
+    return window.__EMBERWAKE__.getState();
   });
   await expect(page.locator('#healing-status')).toBeVisible();
   await expect.poll(async () => (await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health).toBeGreaterThan(83);
-  expect((await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health).toBeLessThan(92);
+  const healed = await page.evaluate(() => window.__EMBERWAKE__.getState());
+  expect(healed.player.health).toBeCloseTo(Math.min(100, healingStart.player.health + (healed.simulationTime - healingStart.simulationTime) * 4), 4);
   await page.getByRole('button', { name: 'Pause and settings' }).click();
   const paused = (await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health;
   await page.waitForTimeout(650);
   expect((await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health).toBe(paused);
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
-  await page.evaluate(() => window.__EMBERWAKE__.teleport(1200, 850));
+  await page.evaluate(() => {
+    window.__EMBERWAKE__.teleport(1200, 850);
+    window.__EMBERWAKE__.damagePlayer(10);
+  });
   await expect(page.locator('#healing-status')).toBeHidden();
   const outside = (await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health;
   await page.waitForTimeout(650);
@@ -333,7 +338,7 @@ test('compound gate opens before the player crosses the palisade', async ({ page
   // Down + right in screen space maps to due-east movement through the gateway.
   await page.keyboard.down('d');
   await page.keyboard.down('s');
-  await page.waitForTimeout(1_800);
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.x), { timeout: 10_000 }).toBeGreaterThan(1760);
   await page.keyboard.up('s');
   await page.keyboard.up('d');
   const player = (await page.evaluate(() => window.__EMBERWAKE__.getState())).player;
@@ -500,8 +505,10 @@ test('critical tycoon loop, defeat loss, expansions, fishing and raid stay live'
   await page.evaluate(() => window.__EMBERWAKE__.teleport(1120, 1860));
   await expect.poll(async () => (await page.evaluate(() => window.__EMBERWAKE__.getState())).player.fishMeals).toBeGreaterThan(0);
 
-  await page.evaluate(() => window.__EMBERWAKE__.triggerRaid());
-  const raid = await page.evaluate(() => window.__EMBERWAKE__.getState());
+  const raid = await page.evaluate(() => {
+    window.__EMBERWAKE__.triggerRaid();
+    return window.__EMBERWAKE__.getState();
+  });
   expect(raid.raidState).toBe('active');
   const raiders = raid.enemies.filter(enemy => enemy.kind === 'raider');
   expect(raiders.length).toBeGreaterThanOrEqual(4);
