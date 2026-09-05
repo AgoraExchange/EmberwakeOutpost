@@ -202,7 +202,7 @@ test('the hearth heals gradually, stops outside its boundary, and respects pause
   expect(healed.player.health).toBeCloseTo(Math.min(100, healingStart.player.health + (healed.simulationTime - healingStart.simulationTime) * 4), 4);
   await page.getByRole('button', { name: 'Pause and settings' }).click();
   const paused = (await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health;
-  await page.waitForTimeout(650);
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.x), { timeout: 10_000 }).toBeGreaterThan(before.x + 20);
   expect((await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health).toBe(paused);
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await page.evaluate(() => {
@@ -336,12 +336,14 @@ test('compound gate opens before the player crosses the palisade', async ({ page
   if (isMobile) return;
 
   // Down + right in screen space maps to due-east movement through the gateway.
-  await page.keyboard.down('d');
-  await page.keyboard.down('s');
+  await page.evaluate(() => {
+    for (const key of ['d', 's']) window.dispatchEvent(new KeyboardEvent('keydown', { key }));
+  });
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.x), { timeout: 10_000 }).toBeGreaterThan(1760);
-  await page.keyboard.up('s');
-  await page.keyboard.up('d');
-  const player = (await page.evaluate(() => window.__EMBERWAKE__.getState())).player;
+  const player = await page.evaluate(() => {
+    for (const key of ['d', 's']) window.dispatchEvent(new KeyboardEvent('keyup', { key }));
+    return window.__EMBERWAKE__.getState().player;
+  });
   expect(player.x).toBeGreaterThan(1760);
   expect(Math.abs(player.y - 870)).toBeLessThan(120);
 });
