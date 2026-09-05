@@ -202,7 +202,7 @@ test('the hearth heals gradually, stops outside its boundary, and respects pause
   expect(healed.player.health).toBeCloseTo(Math.min(100, healingStart.player.health + (healed.simulationTime - healingStart.simulationTime) * 4), 4);
   await page.getByRole('button', { name: 'Pause and settings' }).click();
   const paused = (await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health;
-  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.x), { timeout: 10_000 }).toBeGreaterThan(before.x + 20);
+  await page.waitForTimeout(650);
   expect((await page.evaluate(() => window.__EMBERWAKE__.getState())).player.health).toBe(paused);
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await page.evaluate(() => {
@@ -361,7 +361,7 @@ test('mobile floating joystick responds and the viewport never scrolls', async (
   await page.mouse.move(startX, startY);
   await page.mouse.down();
   await page.mouse.move(startX + 80, startY, { steps: 8 });
-  await page.waitForTimeout(650);
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.x), { timeout: 10_000 }).toBeGreaterThan(before.x + 20);
   await page.mouse.up();
   const after = await page.evaluate(() => window.__EMBERWAKE__.getState().player);
   expect(after.x).toBeGreaterThan(before.x + 20);
