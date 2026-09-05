@@ -13,6 +13,7 @@ Emberwake adaptations implemented:
 3. Preserve meaningful upgrades. Every Grill purchase reduces cook time, even after Cook upgrades. Beacon improves arrivals without restricting the requested eight-person queue. Dedicated Cook, Grill, Armory, and Defense pads stay in recognizable districts.
 4. Improve world readability. Ground pads contain only a symbol and price, props leave them clear, the Cookout sign no longer hides the archer, guests form a connected two-row queue, and cash fits phone HUD cells.
 5. Give return visits a useful outcome. Stocked stations cook while away, unfinished payments survive closing, and a cook's carried batch is saved. Returning does not invent ingredients or simulate unobserved raids.
+6. Keep the economy independent of rendering speed. CI exposed Pixi's 100 ms delta cap slowing the game below ten frames per second. Fixed simulation steps now consume raw elapsed time with a one-second safety cap; pause and backgrounding stop the renderer, and resume discards suspended time. A browser test deliberately slows frames to verify the clock.
 
 Existing expansion sequence: Eastern Frontier (30 timber), Shoreline Works (45 timber; fishing and smokehouse), Glacier Reach ($650), Whiteout Expanse ($1,600). Defense develops from spear watch through archer towers into automatic turrets.
 

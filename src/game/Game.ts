@@ -305,6 +305,7 @@ export class Game {
   private padGateSignature = '';
   private readonly snowflakes: Array<{ graphic: Graphics; speed: number; drift: number }> = [];
   private accumulator = 0;
+  private skipNextFrame = false;
   private simulationTime = 0;
   private lastSaveTime = 0;
   private paused = true;
@@ -413,9 +414,9 @@ export class Game {
 
   private readonly callbacks: GameCallbacks;
 
-  start(): void { this.paused = false; this.app.canvas.focus(); void this.audio.unlock(); }
-  pause(): void { this.paused = true; }
-  resume(): void { this.paused = false; this.app.canvas.focus(); }
+  start(): void { this.resume(); void this.audio.unlock(); }
+  pause(): void { this.paused = true; this.accumulator = 0; this.app.stop(); }
+  resume(): void { this.paused = false; this.skipNextFrame = true; this.app.start(); this.app.canvas.focus(); }
   isPaused(): boolean { return this.paused; }
 
   applySettings(): void {
@@ -482,7 +483,10 @@ export class Game {
 
   private readonly onFrame = (ticker: Ticker): void => {
     if (this.hidden || this.paused) return;
-    const frameDelta = Math.min(WORLD.maxFrameDelta, ticker.deltaMS / 1000);
+    if (this.skipNextFrame) { this.skipNextFrame = false; this.accumulator = 0; return; }
+    // Pixi caps deltaMS at 100 ms: using it for game time slowed the entire
+    // simulation below 10 FPS. Keep fixed steps driven by actual elapsed time.
+    const frameDelta = Math.min(WORLD.maxFrameDelta, Math.max(0, ticker.elapsedMS / 1000));
     this.accumulator += frameDelta;
     while (this.accumulator >= WORLD.fixedStep) {
       this.fixedUpdate(WORLD.fixedStep);
@@ -495,8 +499,10 @@ export class Game {
     const wasHidden = this.hidden;
     this.hidden = document.hidden;
     this.accumulator = 0;
-    if (this.hidden) this.requestSave();
+    if (this.hidden) { this.app.stop(); this.requestSave(); }
     else if (wasHidden) {
+      this.skipNextFrame = true;
+      if (!this.paused) this.app.start();
       const cooked = finishOfflineCooking(this.save);
       this.customerBearDemand += cooked.meals;
       this.customerFishDemand += cooked.fishMeals;

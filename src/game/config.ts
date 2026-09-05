@@ -91,7 +91,7 @@ export const WORLD = {
   timberPost: { x: 1480, y: 1010 },
   safeRadiusBase: 265,
   fixedStep: 1 / 60,
-  maxFrameDelta: 0.2
+  maxFrameDelta: 1
 } as const;
 
 /**

@@ -8,6 +8,7 @@ declare global {
         player: { x: number; y: number; health: number; meat: number; fish: number; meals: number; fishMeals: number; wood: number; alive: boolean };
         enemies: Array<{ kind: string; state: string; x: number; y: number; isRaid: boolean }>;
         cash: number;
+        simulationTime: number;
         cashDrops: number;
         cashLoot: Array<{ x: number; y: number; value: number }>;
         rawLoot: Array<{ x: number; y: number; amount: number }>;
@@ -38,6 +39,28 @@ declare global {
     };
   }
 }
+
+test('slow rendering does not slow the game clock or advance paused time', async ({ page, browserName, isMobile }) => {
+  test.skip(isMobile || browserName !== 'chromium', 'exercise deliberately slow frames once');
+  await page.addInitScript(() => {
+    const request = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = callback => request(() => window.setTimeout(() => callback(performance.now()), 180));
+  });
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().simulationTime)).toBeGreaterThan(.1);
+  const before = await page.evaluate(() => ({ game: window.__EMBERWAKE__.getState().simulationTime, real: performance.now() }));
+  await page.waitForTimeout(2500);
+  const after = await page.evaluate(() => ({ game: window.__EMBERWAKE__.getState().simulationTime, real: performance.now() }));
+  expect((after.game - before.game) / ((after.real - before.real) / 1000)).toBeGreaterThan(.75);
+  await page.getByRole('button', { name: 'Pause and settings' }).click();
+  const paused = await page.evaluate(() => window.__EMBERWAKE__.getState().simulationTime);
+  await page.waitForTimeout(1200);
+  expect(await page.evaluate(() => window.__EMBERWAKE__.getState().simulationTime)).toBe(paused);
+  await page.getByRole('button', { name: 'Resume', exact: true }).click();
+  await page.waitForTimeout(600);
+  expect((await page.evaluate(() => window.__EMBERWAKE__.getState().simulationTime)) - paused).toBeLessThan(1);
+});
 
 test('eight guests queue and the hired cook delivers meals without banking cash', async ({ page, browserName, isMobile }) => {
   test.skip(isMobile || browserName !== 'chromium', 'exercise cook delivery once');
