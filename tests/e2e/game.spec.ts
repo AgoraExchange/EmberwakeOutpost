@@ -86,6 +86,7 @@ test('offline crews leave collectible cash and three-pile lumber stock', async (
   await page.waitForTimeout(1_200);
   await page.screenshot({ path: 'test-results/offline-lumber-yard.png' });
   await page.evaluate(() => window.__EMBERWAKE__.teleport(1500, 1120));
+  await expect(page.locator('#interaction-title')).toContainText('Lumber yard');
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.wood)).toBeGreaterThan(0);
 });
 

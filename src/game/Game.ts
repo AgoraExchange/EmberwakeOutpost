@@ -235,8 +235,7 @@ const PAD_SLOTS: PadSlot[] = [
   // The rest form an upgrade row along the south of the hearth district.
   { x: 520, y: 1220 },
   { x: 700, y: 1220 },
-  { x: 1340, y: 1200 },
-  { x: 1520, y: 1160 }
+  { x: 1340, y: 1200 }
 ];
 
 /**
