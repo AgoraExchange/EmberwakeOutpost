@@ -5,6 +5,7 @@ import {
   applyDeathLoss,
   applyRaidProfitDamage,
   attackCadenceFor,
+  butcherSecondsFor,
   convertStation,
   purchaseMeal,
   upgradeCost,
@@ -12,6 +13,13 @@ import {
 } from '../../src/game/rules';
 
 describe('combat and cooldown rules', () => {
+  it('every paid Grill level improves cooking even with the best hired cook', () => {
+    for (let worker = 0; worker <= 2; worker += 1) {
+      for (let grill = 0; grill < 7; grill += 1) {
+        expect(butcherSecondsFor(grill + 1, worker)).toBeLessThan(butcherSecondsFor(grill, worker));
+      }
+    }
+  });
   it('applies damage without going below zero and respects spawn protection', () => {
     expect(applyDamage(100, 19, false)).toBe(81);
     expect(applyDamage(12, 19, false)).toBe(0);

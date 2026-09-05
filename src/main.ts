@@ -1,7 +1,9 @@
 import { registerSW } from 'virtual:pwa-register';
 import './styles.css';
-import { Game } from './game/Game';
-import { BRAND } from './game/config';
+import { Game, type InteractionHint } from './game/Game';
+import { finishOfflineCooking } from './game/progression';
+import { BRAND, UPGRADE_BY_ID, defenseTierFor } from './game/config';
+import { butcherSecondsFor, counterCapacityFor, upgradeCost } from './game/rules';
 import { assetPath } from './game/pathing';
 import { exportSave, importSave, loadSave, normalizeTrailwardenName, resetStoredProgress, saveProgress } from './game/save';
 import { spriteCount } from './game/sprites';
@@ -41,15 +43,17 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.0.0';
+const APP_VERSION = '1.2.0';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 
 let currentSave: SaveData;
 let game: Game;
 let toastTimer = 0;
-let objectiveTimer = 0;
+let hintKey = '';
 let updateWaiting = false;
+let hudKey = '';
+const compactNumbers = new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 });
 
 function showToast(message: string): void {
   toast.textContent = message;
@@ -134,10 +138,15 @@ async function askForTrailwardenName(): Promise<void> {
 }
 
 function updateHud(cash: number, rawFood: number, cookedFood: number, wood: number, health: number, maxHealth: number): void {
-  const compact = (value: number): string => value < 10_000
+  const key = `${cash}|${rawFood}|${cookedFood}|${wood}|${Math.ceil(health)}|${maxHealth}`;
+  if (key === hudKey) return;
+  hudKey = key;
+  const compact = (value: number): string => value < 1_000
     ? Math.floor(value).toLocaleString()
-    : new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(Math.floor(value));
+    : compactNumbers.format(Math.floor(value));
   requireElement('#cash-value').textContent = compact(cash);
+  requireElement('#cash-value').parentElement!.setAttribute('aria-label', `Banked cash: $${Math.floor(cash).toLocaleString()}`);
+  requireElement('#cash-value').title = `$${Math.floor(cash).toLocaleString()}`;
   // Carrying is unbounded, so each resource shows a running count rather than a fraction.
   requireElement('#wood-value').textContent = compact(wood);
   requireElement('#raw-food-value').textContent = compact(rawFood);
@@ -146,10 +155,26 @@ function updateHud(cash: number, rawFood: number, cookedFood: number, wood: numb
 }
 
 function updateObjective(step: TutorialStep, text: string): void {
-  window.clearTimeout(objectiveTimer);
   objectiveCard.classList.remove('complete');
+  requireElement('#objective-kicker').textContent = step === 'complete' ? 'NEXT EXPEDITION' : 'FIELD NOTES';
   objectiveText.textContent = text;
-  if (step === 'complete') objectiveTimer = window.setTimeout(() => objectiveCard.classList.add('complete'), 3400);
+}
+
+function updateInteractionHint(hint: InteractionHint | null, healing: boolean): void {
+  const health = requireElement('.health-pill');
+  health.classList.toggle('healing', healing);
+  requireElement('#healing-status').classList.toggle('hidden', !healing);
+  const key = JSON.stringify(hint ? { ...hint, progress: Math.round(hint.progress * 100) } : null);
+  if (key === hintKey) return;
+  hintKey = key;
+  const card = requireElement('#interaction-card');
+  card.classList.toggle('hidden', !hint);
+  if (!hint) return;
+  card.classList.toggle('sanctuary', Boolean(hint.healing));
+  requireElement('#interaction-title').textContent = hint.title;
+  requireElement('#interaction-detail').textContent = hint.detail;
+  requireElement('#interaction-action').textContent = hint.action;
+  requireElement('#interaction-progress').style.width = `${Math.min(100, Math.max(0, hint.progress * 100))}%`;
 }
 
 function updateRaid(message: string | null): void {
@@ -161,6 +186,50 @@ function openPause(): void {
   game.pause();
   pauseScreen.classList.add('visible');
   pauseScreen.setAttribute('aria-hidden', 'false');
+}
+
+function openOutpost(): void {
+  if (!game || game.isPaused()) return;
+  game.pause();
+  const save = game.getSave();
+  const state = game.debugState();
+  const pendingCash = state.cashLoot.reduce((sum, drop) => sum + drop.value, 0);
+  const price = (id: 'worker' | 'defense' | 'butcherSpeed' | 'counterCapacity') =>
+    `$${Math.max(0, upgradeCost(id, save.upgrades[id]) - (save.contributions[id] ?? 0)).toLocaleString()}`;
+  const upgrade = (id: 'worker' | 'defense' | 'butcherSpeed' | 'counterCapacity') =>
+    save.upgrades[id] >= UPGRADE_BY_ID[id].maxLevel ? 'Fully upgraded' : `Next upgrade: ${price(id)}`;
+  requireElement('#outpost-advice').textContent = pendingCash > 0 ? `Collect $${pendingCash.toLocaleString()} waiting around your outpost and hunting grounds.`
+    : save.upgrades.worker === 0 ? `Your first automation: hire the Cook for ${price('worker')} at the kitchen pad. Supply raw meat; the cook carries meals to guests.`
+    : save.station.rawMeat + save.station.meals + save.station.cookMeals === 0 ? 'The kitchen needs supplies. Hunt bears and drop raw meat behind the Cookout to restart production.'
+    : save.upgrades.defense === 0 ? `Protect your growing business: the Defense pad hires spear guards for ${price('defense')}.`
+    : save.station.meals >= counterCapacityFor(save.upgrades.counterCapacity) && save.upgrades.worker < 2 ? `The output shelf is full. Upgrade your Cook for ${price('worker')} to carry larger batches faster.`
+    : 'Your crew is working. Improve recipes for more income per meal, or stockpile timber for your next expansion.';
+  const fill = (selector: string, rows: string[][]) => {
+    const host = requireElement(selector);
+    host.replaceChildren();
+    for (const [title, description, status] of rows) {
+      const tile = document.createElement('article'); tile.className = 'outpost-tile';
+      for (const [tag, text] of [['h3', title], ['p', description], ['small', status]]) {
+        const line = document.createElement(tag!); line.textContent = text!; tile.append(line);
+      }
+      host.append(tile);
+    }
+  };
+  fill('#outpost-production', [
+    ['Cookout', `${save.station.rawMeat} raw · ${save.station.meals}/${counterCapacityFor(save.upgrades.counterCapacity)} ready · ${butcherSecondsFor(save.upgrades.butcherSpeed, save.upgrades.worker).toFixed(2)}s per meal`, upgrade('butcherSpeed')],
+    ['Meal delivery', `${UPGRADE_BY_ID.worker.effectText(save.upgrades.worker)} · ${save.station.cookMeals} carried`, upgrade('worker')],
+    ['Mess Hall', `${state.customerDemand} orders · up to 8 guests in line · $${4 + save.upgrades.saleValue * 2} per bear meal`, upgrade('counterCapacity')],
+    ['Compound defense', `${defenseTierFor(save.upgrades.defense).name} · ${Math.ceil(state.gateHealth)} gate HP`, upgrade('defense')]
+  ]);
+  fill('#outpost-districts', [
+    ['Eastern Frontier', 'More hunting grounds and furnace upgrades.', save.unlocks.zone2 ? 'OPEN' : `${30 - (save.contributions.zone2 ?? 0)} timber remaining`],
+    ['Shoreline Works', 'Fishing dock and smokehouse for higher-value frostfin meals.', save.unlocks.dock ? 'OPEN' : `${45 - (save.contributions.dock ?? 0)} timber remaining`],
+    ['Glacier Reach', 'Deeper forests and tougher wildlife beyond the frontier.', save.unlocks.glacier ? 'OPEN' : `$${650 - (save.contributions.glacier ?? 0)} · Eastern Frontier required`],
+    ['Whiteout Expanse', 'The farthest hunting expedition.', save.unlocks.whiteout ? 'OPEN' : `$${1600 - (save.contributions.whiteout ?? 0)} · Glacier Reach required`]
+  ]);
+  requireElement('#outpost-screen').classList.add('visible');
+  requireElement('#outpost-screen').setAttribute('aria-hidden', 'false');
+  requireElement('#outpost-close').focus();
 }
 
 function closePause(): void {
@@ -212,11 +281,20 @@ function bindSettings(): void {
 
 async function bootstrap(): Promise<void> {
   currentSave = await loadSave();
+  const away = finishOfflineCooking(currentSave);
+  await saveProgress(currentSave);
+  const awayCount = away.meals + away.fishMeals;
+  if (awayCount > 0) {
+    const report = requireElement('#away-report');
+    report.textContent = `WELCOME BACK · ${awayCount} meals cooked while you were away`;
+    report.classList.remove('hidden');
+  }
   appVersion.textContent = `Emberwake ${APP_VERSION}`;
   updateTrailwardenGreeting();
   game = await Game.create(host, currentSave, {
     hud: updateHud,
     objective: updateObjective,
+    hint: updateInteractionHint,
     raid: updateRaid,
     toast: showToast,
     defeat: (lostRawFood, lostCookedFood, lostWood, seconds) => {
@@ -240,6 +318,13 @@ async function bootstrap(): Promise<void> {
 
   bindSettings();
   pauseButton.addEventListener('click', openPause);
+  requireElement('#outpost-button').addEventListener('click', openOutpost);
+  requireElement('#outpost-close').addEventListener('click', () => {
+    requireElement('#outpost-screen').classList.remove('visible');
+    requireElement('#outpost-screen').setAttribute('aria-hidden', 'true');
+    game.resume();
+    requireElement('#outpost-button').focus();
+  });
   resumeButton.addEventListener('click', closePause);
   window.addEventListener('keydown', event => {
     if (event.key === 'Escape') {

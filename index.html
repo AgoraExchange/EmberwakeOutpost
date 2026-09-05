@@ -46,7 +46,25 @@
 
       <div id="raid-banner" class="hidden" aria-live="assertive"></div>
       <div id="toast" class="hidden" aria-live="polite"></div>
+      <div id="healing-status" class="hidden" role="status">+ HEALING</div>
+      <aside id="interaction-card" class="hidden" aria-label="Nearby activity">
+        <strong id="interaction-title"></strong>
+        <span id="interaction-detail"></span>
+        <span id="interaction-action"></span>
+        <div class="interaction-track"><span id="interaction-progress"></span></div>
+      </aside>
       <div id="joystick" class="joystick hidden" aria-hidden="true"><div id="joystick-knob"></div></div>
+      <button id="outpost-button" class="secondary-button" type="button">Outpost</button>
+      <section id="outpost-screen" class="modal-screen" aria-labelledby="outpost-title" aria-hidden="true">
+        <div class="panel outpost-panel">
+          <div class="panel-heading"><div><p>BUILD YOUR FRONTIER</p><h2 id="outpost-title">Outpost overview</h2></div><button id="outpost-close" class="secondary-button" type="button">Back to camp</button></div>
+          <p id="outpost-advice" class="outpost-advice"></p>
+          <div id="outpost-production" class="outpost-grid"></div>
+          <h3>Expand your territory</h3>
+          <div id="outpost-districts" class="outpost-grid"></div>
+          <p class="panel-footnote">Supply the kitchens, improve your crew, collect profits, then reinvest. Stocked kitchens cook while you are away; deliveries and raids wait for your return.</p>
+        </div>
+      </section>
 
       <section id="launch-screen" class="modal-screen visible" aria-label="Loading Emberwake Outpost">
         <div class="launch-sky" aria-hidden="true"></div>
@@ -71,6 +89,7 @@
           <h2>OUTPOST</h2>
           <button id="start-button" class="primary-button" type="button" disabled>LIGHTING THE OUTPOST…</button>
           <small id="trailwarden-greeting" class="trailwarden-greeting"></small>
+          <small id="away-report" class="hidden"></small>
           <small>Best played with sound · Progress saves on this device</small>
         </div>
       </section>

@@ -4,6 +4,23 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.2.0 — A working, growing outpost
+
+- The Cookout sign sits behind the kitchen, clear of the archer tower. The HUD abbreviates thousands and millions, retains exact cash in its accessible label/tooltip, and gives phone inventory its own row.
+- Open **Outpost** for production stock, delivery load, queued orders, defense strength, exact next costs, and expansion requirements. The overview pauses play and recommends the next useful task. Research and design decisions are recorded in [the tycoon design notes](docs/tycoon-design-notes.md).
+- Eight villagers can queue in two connected rows. Beacon upgrades shorten arrival staggering, while Counter upgrades increase ready-food storage.
+- Dedicated Cook ($108, then $243) and Grill (from $44) pads sit by the kitchen. The hired cook carries real batches of two meals to waiting villagers; the second level moves faster and carries four. The player supplies raw meat and collects the physical cash. Carried cook meals survive relaunches; deliveries pause while the game is paused or closed.
+- Early progression at $8 per log: Edge costs four logs' income, Grill six, Counter seven, Armory nine, Defense twelve, and Cook fourteen. Later costs rise by upgrade level; expansions require 30 timber, 45 timber, $650, then $1,600. Every Grill tier improves actual cooking speed, including with the upgraded cook.
+- Mess Hall, Cookout, and Timber Post retain their wayfinding signs. Upgrade and expansion costs are painted directly onto ground pads, with bright corners, affordable-state color, and payment progress around the edge. Walk near a pad to see the benefit; stand still in its center to contribute.
+- Compact pads show just their symbol and cost, at roughly half their previous width and depth. Supply crates and barrels sit clear of purchase areas; upgrade names and benefits appear in the nearby-activity panel.
+- Logs sell for $8 each. The dedicated Defense pad upgrades spear villagers into an archer tower, twin towers, automatic turrets, and advanced Ember batteries. Defenders attack raiders from their actual posts.
+- Each slain bear drops raw meat and collectible $6 cash, including kills made by compound defenders. Raid meat remains for five minutes; the successful defense bonus is paid separately in collectible cash.
+- Raw food, cooked meals, and timber share the same backpack-height base, including when all three stacks are carried.
+- The green furnace circle heals living players at 4 HP per second, capped at maximum health. Each Infirmary level adds 2 HP per second and still shortens respawn time. Leaving the circle or pausing stops healing.
+- Unfinished cash and timber contributions persist across relaunches. Save schema v5 migrates earlier saves, retaining their names, upgrades, stock, settings, and currency.
+- Stocked grills and unlocked smokehouses finish cooking while the app is closed or hidden, using at most eight hours of elapsed time. Existing ingredients and output capacity limit production; there are no automatic sales or offline raids. The title screen reports completed meals on return.
+- After onboarding, the objective card points to the next expansion or crew milestone.
+
 ## Run locally
 
 Requirements: Node.js 22+ and npm.
@@ -52,7 +69,7 @@ Audio starts only after interaction. Haptics, reduced motion, 30 FPS battery mod
 The vertical slice includes:
 
 - deterministic fixed-step movement, targeting, combat cadence, knockback, hit-stop, damage feedback, enemy finite-state behavior, death, protected respawn, and permanent loss of all carried cargo on defeat;
-- visible raw/cooked/timber backpack stacks, magnetic drops, provision storage, animated grill conversion, physical output piles, inventory-matched customer queues capped at six visible orders, physical cash, and real upgrade effects;
+- visible raw/cooked/timber backpack stacks, magnetic drops, provision storage, animated grill conversion, physical output piles, inventory-matched queues of eight villagers, hired meal delivery, physical cash, and real upgrade effects;
 - 16 upgrade lines covering combat, survival, carrying, production, customers, worker count, defense, heat, and recovery;
 - an eight-times-larger 9,600×6,200 ice world with Rime Trail, Icehorn Ridge, Glacier Reach, Whiteout Expanse, sequential passes, new forests, obstacles, and tougher enemies;
 - a repeatable telegraphed gate raid whose pack assembles off-camera, follows a staged route to the compound gate, and can be opposed by the guard; if the gate buckles, raiders enter the compound and destroy banked profit at the Cookout until the pack is eliminated;
@@ -82,9 +99,9 @@ Change values in the config tables, then run `npm test` and the browser acceptan
 
 ## Save behavior
 
-The current schema is version 4. Progress saves after purchases, deposits/major state changes, deaths, settings updates, imports/resets, document hiding, and every eight active seconds. IndexedDB is primary and `localStorage` is a fallback for constrained/private environments.
+The current schema is version 5. Progress saves after purchases, deposits/major state changes, deaths, settings updates, imports/resets, document hiding, and every eight active seconds. IndexedDB is primary and `localStorage` is a fallback for constrained/private environments.
 
-Saved state includes the Trailwarden call-sign, banked cash, upgrade levels, all expedition gates, station inventory/progress, tutorial completion, stats, and settings. Carried at-risk cargo and physical world drops are deliberately session state. Import validates and migrates the file before replacing progress; reset requires two confirmations. Migration hooks for v1–v4 and unknown/corrupt data are covered by unit tests.
+Saved state includes the Trailwarden call-sign, banked cash, upgrade levels, unfinished pad contributions, all expedition gates, station inventory/progress, tutorial completion, stats, and settings. Carried at-risk cargo and physical world drops are deliberately session state. Import validates and migrates the file before replacing progress; reset requires two confirmations. Migration hooks for v1–v5 and unknown/corrupt data are covered by unit tests.
 
 ## PWA and iPhone installation
 

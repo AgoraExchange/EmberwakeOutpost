@@ -1,6 +1,7 @@
-import { Application, Container, CullerPlugin, Graphics, Rectangle, Text, Ticker, extensions } from 'pixi.js';
+import { Application, Container, CullerPlugin, Graphics, Matrix, Rectangle, Text, Ticker, extensions } from 'pixi.js';
 import { AudioEngine } from './AudioEngine';
-import { BRAND, CATEGORY_COLORS, ECONOMY, ENEMIES, TIMBER, UPGRADE_CATEGORY, UPGRADES, UPGRADE_BY_ID, WEAPON_RANGED_TIER, WORLD, ZONES, isUpgradeAvailable } from './config';
+import { BRAND, CATEGORY_COLORS, ECONOMY, ENEMIES, TIMBER, UPGRADE_CATEGORY, UPGRADES, UPGRADE_BY_ID, WEAPON_RANGED_TIER, WORLD, ZONES, defenseTierFor, isUpgradeAvailable } from './config';
+import { createDefenseVisual } from './defenseVisuals';
 import { InputController } from './InputController';
 import { Pool } from './Pool';
 import { ISO_BOUNDS, depth, facesLeft, footprint, inputToWorld, isoX, isoY, traceFootprint } from './iso';
@@ -13,7 +14,6 @@ import {
   drawTrailwardenBody,
   drawWeapon,
   isoBuilding,
-  paintPadChrome,
   paintResourceBadge,
   paintUpgradePlate,
   spriteFor,
@@ -34,6 +34,7 @@ import {
   counterCapacityFor,
   distanceSquared,
   gateHealthFor,
+  healingPerSecondFor,
   magnetRadiusFor,
   maxHealthFor,
   mealValueFor,
@@ -47,10 +48,19 @@ import {
   weaponDamageFor
 } from './rules';
 import { saveProgress } from './save';
+import { finishOfflineCooking } from './progression';
 import { loadSprites } from './sprites';
 import type { CargoKind, EnemyConfig, EnemyKind, EnemyState, Rect, SaveData, TutorialStep, UpgradeId, Vec2 } from './types';
 
 extensions.add(CullerPlugin);
+
+export interface InteractionHint {
+  title: string;
+  detail: string;
+  action: string;
+  progress: number;
+  healing?: boolean;
+}
 
 interface GameCallbacks {
   hud: (cash: number, rawFood: number, cookedFood: number, wood: number, health: number, maxHealth: number) => void;
@@ -60,6 +70,7 @@ interface GameCallbacks {
   defeat: (lostRawFood: number, lostCookedFood: number, lostWood: number, seconds: number) => void;
   respawn: () => void;
   save: (save: SaveData) => void;
+  hint: (hint: InteractionHint | null, healing: boolean) => void;
 }
 
 interface PlayerEntity {
@@ -116,7 +127,7 @@ interface UpgradePad {
   /** Set when the slot is pinned to one line (the gate-yard Armory) and never rotates. */
   fixed?: UpgradeId;
   x: number; y: number; paid: number; lockedUntilExit: boolean; container: Container;
-  plate: Graphics; chrome: Graphics; icon: Text; title: Text; detail: Text; progress: Graphics;
+  plate: Graphics; icon: Text; title: Text; detail: Text; progress: Graphics;
   /** Last painted appearance, so unchanged pads skip geometry rebuilds each frame. */
   paintKey: string;
   /** Seconds the player has stood still on this plate, so walking across never buys. */
@@ -126,7 +137,7 @@ interface UpgradePad {
 interface UnlockPad {
   kind: 'zone2' | 'dock' | 'glacier' | 'whiteout'; payment: 'wood' | 'cash';
   x: number; y: number; cost: number; paid: number; lockedUntilExit: boolean;
-  container: Container; plate: Graphics; chrome: Graphics; title: Text; detail: Text;
+  container: Container; plate: Graphics; title: Text; detail: Text; progress: Graphics;
   paintKey: string; dwell: number;
   /** Build plates are paid in hauled timber rather than cash. */
   requires: number;
@@ -167,12 +178,13 @@ interface TreeEntity {
 
 interface Particle { graphic: Graphics; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; worldSpace: boolean }
 interface DamageLabel { text: Text; x: number; y: number; life: number; maxLife: number }
+type DefenderPost = ReturnType<typeof createDefenseVisual> & Vec2 & { cooldown: number; lastShot: number };
 interface StationVisuals {
   furnaceGlow: Graphics; furnaceFlame: Graphics; warmRing: Graphics; butcherProgress: Graphics; butcherStock: Text;
   mealOutput: Container; mealPile: Graphics; mealOutputStock: Text; cashStock: Text;
   fishProgress: Graphics; fishStock: Text; fishOutput: Container; fishPile: Graphics; fishOutputStock: Text; dockProgress: Graphics;
   fishBuilding: Container; fishDropZone: Container; zoneGate: Container; glacierGate: Container; whiteoutGate: Container;
-  southGate: Container; compoundGate: GateVisual; gateBar: Graphics; guard: Container;
+  southGate: Container; compoundGate: GateVisual; gateBar: Graphics;
   workerVisuals: Container[]; serveHint: Text;
 }
 
@@ -201,11 +213,14 @@ interface PadSlot extends Vec2 {
 const PAD_SLOTS: PadSlot[] = [
   // The Armory keeps a permanent plate in the gate yard, on the way out to the hunt.
   { x: 1560, y: 870, fixed: 'weaponTier' },
+  { x: 1460, y: 680, fixed: 'defense' },
+  { x: 1080, y: 850, fixed: 'worker' },
+  { x: 1250, y: 850, fixed: 'butcherSpeed' },
   // The rest form an upgrade row along the south of the hearth district.
-  { x: 520, y: 1330 },
-  { x: 680, y: 1375 },
-  { x: 1340, y: 1375 },
-  { x: 1490, y: 1290 }
+  { x: 520, y: 1220 },
+  { x: 700, y: 1220 },
+  { x: 1340, y: 1200 },
+  { x: 1520, y: 1160 }
 ];
 
 /**
@@ -218,9 +233,9 @@ const PAD_SLOTS: PadSlot[] = [
  * Their config entries and any saved levels remain valid and simply go unused.
  */
 const PAD_PRIORITY: UpgradeId[] = [
-  'weaponDamage', 'butcherSpeed', 'counterCapacity', 'saleValue',
+  'weaponDamage', 'counterCapacity', 'saleValue',
   'attackSpeed', 'moveSpeed', 'magnet', 'customerFlow',
-  'maxHealth', 'worker', 'furnace', 'infirmary', 'defense'
+  'maxHealth', 'furnace', 'infirmary'
 ];
 
 type ExpeditionUnlock = 'zone2' | 'glacier' | 'whiteout';
@@ -279,6 +294,10 @@ export class Game {
   private dockLine!: Graphics;
   private dockAnchor: Vec2 = { x: 0, y: 0 };
   private warmRingRadius = -1;
+  private healing = false;
+  private healingLabelTimer = 0;
+  private healedSinceLabel = 0;
+  private objectiveKey = '';
   private gateBarKey = '';
   private blockerCache: Rect[] = [];
   private blockerCacheKey = '';
@@ -300,6 +319,10 @@ export class Game {
   private customerSpawnTimer = 0;
   /** One outstanding order is created for every plate that finishes cooking. */
   private customerBearDemand = 0;
+  private cookPosition = { x: 1360, y: 670 };
+  private cookWaypoint = 0;
+  private cookDelivering = false;
+  private cookTray = new Graphics();
   private customerFishDemand = 0;
   private depositTimer = 0;
   private mealPickupTimer = 0;
@@ -316,7 +339,9 @@ export class Game {
   private raidCashLost = 0;
   private raidFoodHitVisual = 0;
   private raidBankEmptyShown = false;
-  private guardTimer = 0;
+  private readonly defenders: DefenderPost[] = [];
+  private defenseVisualLevel = -1;
+  private defenseShots = 0;
   private defeatTimer = 0;
 
   static async create(host: HTMLElement, save: SaveData, callbacks: GameCallbacks): Promise<Game> {
@@ -331,7 +356,8 @@ export class Game {
     this.audio = new AudioEngine(save.settings);
     this.gateHealth = gateHealthFor(save.upgrades.defense);
     // Saved ready stock has no saved visitors, so recreate one order per plate.
-    this.customerBearDemand = save.station.meals;
+    this.customerBearDemand = save.station.meals + save.station.cookMeals;
+    this.cookDelivering = save.station.cookMeals > 0;
     this.customerFishDemand = save.station.fishMeals;
     this.particlePool = new Pool(() => new Graphics(), graphic => { graphic.clear(); graphic.removeFromParent(); }, 40);
     this.damagePool = new Pool(() => worldText('', 25, 0xffffff, '800'), text => { text.text = ''; text.removeFromParent(); }, 14);
@@ -409,14 +435,20 @@ export class Game {
 
   getSave(): SaveData { return structuredClone(this.save); }
 
-  debugState(): { player: { x: number; y: number; health: number; meat: number; fish: number; meals: number; fishMeals: number; wood: number; alive: boolean }; enemies: Array<{ kind: EnemyKind; state: EnemyState; health: number; x: number; y: number; isRaid: boolean }>; cash: number; cashDrops: number; customers: number; customerDemand: number; station: SaveData['station']; upgrades: SaveData['upgrades']; unlocks: SaveData['unlocks']; raidState: string; raidBreached: boolean; raidCashLost: number; gateHealth: number; campGateOpen: number; simulationTime: number; paused: boolean; hidden: boolean; input: Vec2 } {
+  debugState() {
     return {
       player: { x: this.player.x, y: this.player.y, health: this.player.health, meat: this.player.meat, fish: this.player.fish, meals: this.player.meals, fishMeals: this.player.fishMeals, wood: this.player.wood, alive: this.player.alive },
       enemies: this.enemies.map(enemy => ({ kind: enemy.kind, state: enemy.state, health: enemy.health, x: enemy.x, y: enemy.y, isRaid: enemy.isRaid })),
       cash: this.save.cash,
       cashDrops: this.cashDrops.length,
+      cashLoot: this.cashDrops.map(({ x, y, value }) => ({ x, y, value })),
+      rawLoot: this.cargoDrops.filter(drop => drop.kind === 'meat').map(({ x, y, amount }) => ({ x, y, amount })),
+      defense: { level: this.save.upgrades.defense, kind: defenseTierFor(this.save.upgrades.defense).kind, name: defenseTierFor(this.save.upgrades.defense).name, posts: this.defenders.length, shots: this.defenseShots },
+      cargoAnchor: { x: this.player.pack.x, y: this.player.pack.y, bottom: this.player.pack.getLocalBounds().maxY + this.player.pack.y },
       customers: this.customers.length,
       customerDemand: this.customerBearDemand + this.customerFishDemand,
+      waitingCustomers: this.customers.filter(customer => customer.entered && (customer.state === 'arriving' || customer.state === 'waiting')).length,
+      cook: { ...this.cookPosition, carrying: this.save.station.cookMeals, delivering: this.cookDelivering },
       station: { ...this.save.station },
       upgrades: { ...this.save.upgrades },
       unlocks: { ...this.save.unlocks },
@@ -460,9 +492,19 @@ export class Game {
   };
 
   private readonly onVisibility = (): void => {
+    const wasHidden = this.hidden;
     this.hidden = document.hidden;
     this.accumulator = 0;
     if (this.hidden) this.requestSave();
+    else if (wasHidden) {
+      const cooked = finishOfflineCooking(this.save);
+      this.customerBearDemand += cooked.meals;
+      this.customerFishDemand += cooked.fishMeals;
+      if (cooked.meals + cooked.fishMeals > 0) {
+        this.callbacks.toast(`Welcome back · ${cooked.meals + cooked.fishMeals} meals cooked while away`);
+      }
+      this.requestSave();
+    }
   };
 
   private readonly onResize = (): void => {
@@ -612,9 +654,9 @@ export class Game {
     for (const zone of ZONES) {
       const patch = new Graphics();
       this.traceWorldRect(patch, zone.x, zone.y, zone.width, zone.height);
-      patch.fill({ color: zone.tint, alpha: 0.55 });
+      patch.fill({ color: zone.tint, alpha: 0.12 });
       this.traceWorldRect(patch, zone.x, zone.y, zone.width, zone.height);
-      patch.stroke({ color: BRAND.colors.yardEdge, width: 3, alpha: 0.5 });
+      patch.stroke({ color: BRAND.colors.yardEdge, width: 2, alpha: 0.12 });
       patch.zIndex = -798;
       this.world.addChild(patch);
 
@@ -650,8 +692,9 @@ export class Game {
     furnaceGlow.zIndex = -2;
     furnace.addChildAt(furnaceGlow, 0);
     const warmRing = new Graphics();
-    warmRing.zIndex = -3;
-    furnace.addChildAt(warmRing, 0);
+    this.place(warmRing, WORLD.furnace.x, WORLD.furnace.y);
+    warmRing.zIndex = -790;
+    this.world.addChild(warmRing);
     const furnaceFlame = new Graphics();
     furnaceFlame.moveTo(-15, 20).bezierCurveTo(-30, -12, -6, -36, 0, -56).bezierCurveTo(8, -28, 34, -12, 15, 20).fill(0xffa347);
     furnaceFlame.moveTo(-7, 17).bezierCurveTo(-13, -8, 3, -21, 5, -31).bezierCurveTo(18, -9, 17, 5, 7, 17).fill(0xffe09a);
@@ -670,9 +713,10 @@ export class Game {
     this.blockers.push({ x: WORLD.butcher.x - 80, y: WORLD.butcher.y - 55, width: 160, height: 100 });
     const workerVisuals = [
       this.createCampWorker(1090, 660, 0xc56e42),
-      this.createCampWorker(1300, 660, 0x3f7386),
+      this.createCampWorker(1300, 660, 0x3f7386, true),
       this.createCampWorker(1200, 700, 0x65815c)
     ];
+    workerVisuals[1]!.addChild(this.cookTray);
     // Stock readouts ride on their building so they sort with it instead of colliding with neighbours.
     const butcherProgress = new Graphics();
     butcherProgress.position.set(0, grillBuilt.peakY - 54);
@@ -725,9 +769,9 @@ export class Game {
 
     // Shop-style wayfinding boards keep core actions readable without asking
     // ground text to compete with buildings, workers, cargo, or the queue.
-    const mealOutputStock = this.makeWayfindingSign(1470, 500, 'COOKOUT', 'DROP RAW  →  TAKE MEALS', BRAND.colors.ember);
+    const mealOutputStock = this.makeWayfindingSign(1260, 350, 'COOKOUT', 'DROP RAW  →  TAKE MEALS', BRAND.colors.ember);
     const serveHint = this.makeWayfindingSign(470, 835, 'MESS HALL', 'SERVE COOKED  →  GET CASH', 0x6fd39b);
-    this.makeWayfindingSign(1580, 1145, 'TIMBER POST', 'SELL LOGS  ·  $4 EACH', BRAND.colors.timber);
+    this.makeWayfindingSign(1580, 1145, 'TIMBER POST', `SELL LOGS  ·  $${TIMBER.logValue} EACH`, BRAND.colors.timber);
 
     const fishStationBuilt = isoBuilding({ halfWidth: 80, halfDepth: 50, height: 90, wallColor: 0x406d78, roofColor: 0x54c8c5, art: 'building/smokehouse' });
     const fishStation = fishStationBuilt.container;
@@ -768,10 +812,10 @@ export class Game {
     this.place(gateBar, WORLD.campGate.x, WORLD.campGate.y, 400);
     gateBar.y -= 130;
     this.world.addChild(gateBar);
-    const guard = this.createGuard();
+    this.refreshDefenses();
     this.createInfirmary();
 
-    return { furnaceGlow, furnaceFlame, warmRing, butcherProgress, butcherStock, mealOutput, mealPile, mealOutputStock, cashStock, fishProgress, fishStock, fishOutput, fishPile, fishOutputStock, dockProgress, fishBuilding: fishStation, fishDropZone, zoneGate, glacierGate, whiteoutGate, southGate, compoundGate, gateBar, guard, workerVisuals, serveHint };
+    return { furnaceGlow, furnaceFlame, warmRing, butcherProgress, butcherStock, mealOutput, mealPile, mealOutputStock, cashStock, fishProgress, fishStock, fishOutput, fishPile, fishOutputStock, dockProgress, fishBuilding: fishStation, fishDropZone, zoneGate, glacierGate, whiteoutGate, southGate, compoundGate, gateBar, workerVisuals, serveHint };
   }
 
   /**
@@ -781,9 +825,9 @@ export class Game {
   private addFence(x: number, y: number, width: number, height: number): void {
     const alongX = width > height;
     const length = alongX ? width : height;
-    const spacing = 46;
+    const spacing = 25;
     const count = Math.max(2, Math.round(length / spacing));
-    const postHeight = 44;
+    const postHeight = 46;
     for (let index = 0; index <= count; index += 1) {
       const t = index / count;
       const px = alongX ? x + width * t : x + width / 2;
@@ -798,9 +842,14 @@ export class Game {
         post.moveTo(0, -postHeight * 0.72).lineTo(dx, dy - postHeight * 0.72).stroke({ color: 0x74462f, width: 7 });
         post.moveTo(0, -postHeight * 0.34).lineTo(dx, dy - postHeight * 0.34).stroke({ color: 0x623a27, width: 6 });
       }
-      post.roundRect(-5, -postHeight, 10, postHeight, 3).fill(0x8a5637);
-      post.roundRect(-5, -postHeight, 10, postHeight, 3).stroke({ color: BRAND.colors.outline, width: 2 });
-      post.moveTo(-6, -postHeight).lineTo(0, -postHeight - 7).lineTo(6, -postHeight).closePath().fill({ color: BRAND.colors.snowHighlight, alpha: 0.9 });
+      post.roundRect(-9, -postHeight, 18, postHeight, 3).fill(index % 3 ? 0x98633e : 0xa57148);
+      post.roundRect(3, -postHeight + 2, 6, postHeight - 2, 2).fill(0x74472f);
+      post.moveTo(-5, -postHeight + 5).lineTo(-5, -5).stroke({ color: 0xd5a472, width: 2, alpha: .6 });
+      post.roundRect(-9, -postHeight, 18, postHeight, 3).stroke({ color: 0x563a2c, width: 1.5 });
+      post.moveTo(-10, -postHeight + 3).lineTo(-7, -postHeight - 4).lineTo(0, -postHeight - 8)
+        .lineTo(8, -postHeight - 3).lineTo(10, -postHeight + 3).closePath().fill(BRAND.colors.snowHighlight);
+      post.moveTo(-9, -postHeight + 3).lineTo(0, -postHeight + 5).lineTo(9, -postHeight + 2)
+        .stroke({ color: 0xbcdce8, width: 2 });
       this.place(post, px, py, 40);
       this.world.addChild(post);
     }
@@ -883,35 +932,28 @@ export class Game {
     return { container: gate, leftDoor, rightDoor, slide: { x: postX, y: postY }, open: 0, heldOpen: false };
   }
 
-  private createGuard(): Container {
-    const guard = new Container();
-    // Posted in the gate yard, watching the compound's only wide entrance.
-    this.place(guard, 1640, 990, 60);
-    const shadow = contactShadow(30, 12, 0.22);
-    shadow.position.set(0, 26);
-    const art = spriteFor('actor/guard');
-    const base = new Graphics();
-    if (art) base.addChild(art);
-    else {
-      base.roundRect(-23, -28, 46, 52, 17).fill(0x3e6e82);
-      base.moveTo(9, -28).lineTo(23, -22).lineTo(23, 20).lineTo(9, 24).closePath().fill(shade(0x3e6e82, -0.28));
-      base.roundRect(-23, -28, 46, 52, 17).stroke({ color: BRAND.colors.outline, width: 3 });
-      base.circle(0, -34, 17).fill(0xe3c49d).stroke({ color: BRAND.colors.outline, width: 3 });
+  private refreshDefenses(): void {
+    const level = this.save.upgrades.defense;
+    if (level === this.defenseVisualLevel) return;
+    this.defenseVisualLevel = level;
+    for (const post of this.defenders) post.container.destroy({ children: true });
+    this.defenders.length = 0;
+    const tier = defenseTierFor(level);
+    for (let index = 0; index < tier.count; index += 1) {
+      const x = tier.kind === 'spear' ? 1690 : 1650;
+      const y = tier.kind === 'spear' ? (index === 0 ? 785 : 950) : (index === 0 ? 690 : 1050);
+      const visual = createDefenseVisual(tier.kind, level === 5);
+      visual.container.label = `compound-defense-${tier.kind}`;
+      this.place(visual.container, x, y, 35);
+      this.world.addChild(visual.container);
+      this.defenders.push({ ...visual, x, y, cooldown: index * .13, lastShot: -100 });
     }
-    const weapon = new Graphics();
-    if (!art) weapon.roundRect(10, -32, 54, 10, 5).fill(0x334e5b).stroke({ color: BRAND.colors.outline, width: 2 }).circle(58, -27, 7).fill(0xff9f51);
-    const label = worldText('GUARD', 13, 0xefffff, '800');
-    label.position.set(0, 42);
-    guard.addChild(shadow, base, weapon, label);
-    guard.visible = this.save.upgrades.defense > 0;
-    this.world.addChild(guard);
-    return guard;
   }
 
   private createInfirmary(): void {
     const infirmary = new Container();
     // In the hearth district beside the furnace, clear of the respawn point.
-    this.place(infirmary, 1160, 1120, 30);
+    this.place(infirmary, 1170, 1050, 30);
     const shadow = contactShadow(38, 15, 0.22);
     shadow.position.set(0, 30);
     // A ridge tent pitched along the iso axis: two sloping canvas planes to a ridge line.
@@ -927,6 +969,17 @@ export class Game {
     tent.moveTo(south.x, south.y).lineTo(east.x, east.y).lineTo(ridgeFront.x, ridgeFront.y).closePath().fill(shade(canvas, -0.16));
     tent.moveTo(west.x, west.y).lineTo(south.x, south.y).lineTo(ridgeFront.x, ridgeFront.y).lineTo(ridgeBack.x, ridgeBack.y).closePath().stroke({ color: BRAND.colors.outline, width: 3 });
     tent.moveTo(south.x, south.y).lineTo(ridgeFront.x, ridgeFront.y).lineTo(east.x, east.y).stroke({ color: BRAND.colors.outline, width: 2.5 });
+    // Stitched canvas, a warm entrance, and timber footing make the sanctuary a
+    // working infirmary instead of a bare triangular marker.
+    tent.moveTo(south.x + 4, south.y - 4).lineTo(ridgeFront.x + 1, ridgeFront.y + 11)
+      .lineTo(east.x - 8, east.y - 4).closePath().fill(0x475c5a);
+    tent.moveTo(south.x + 10, south.y - 5).lineTo(ridgeFront.x + 4, ridgeFront.y + 18)
+      .lineTo(east.x - 11, east.y - 5).closePath().fill({ color: 0xffc77a, alpha: .65 });
+    tent.moveTo(west.x + 8, west.y - 1).lineTo(ridgeBack.x + 8, ridgeBack.y + 5)
+      .moveTo(south.x - 9, south.y - 3).lineTo(ridgeFront.x - 9, ridgeFront.y + 5)
+      .stroke({ color: 0x9aaea3, width: 1.8, alpha: .65 });
+    tent.moveTo(west.x - 3, west.y + 2).lineTo(south.x, south.y + 3).lineTo(east.x + 3, east.y + 2)
+      .stroke({ color: 0x89623e, width: 5, cap: 'round' });
     snowCap(tent, [ridgeBack, ridgeFront], 6);
     const cross = new Graphics();
     cross.roundRect(-4, -40, 8, 20, 2).fill(BRAND.colors.danger).roundRect(-10, -34, 20, 8, 2).fill(BRAND.colors.danger);
@@ -934,12 +987,12 @@ export class Game {
     this.world.addChild(infirmary);
   }
 
-  private createCampWorker(x: number, y: number, coatColor: number): Container {
+  private createCampWorker(x: number, y: number, coatColor: number, cook = false): Container {
     const worker = new Container();
     this.place(worker, x, y, 35);
     const shadow = contactShadow(22, 9, 0.2);
     shadow.position.set(0, 18);
-    const art = spriteFor('actor/worker');
+    const art = spriteFor(cook ? 'actor/villager' : 'actor/worker');
     const body = new Graphics();
     if (art) body.addChild(art);
     else {
@@ -950,6 +1003,12 @@ export class Game {
       body.moveTo(-13, -38).bezierCurveTo(-8, -55, 8, -55, 14, -37).lineTo(10, -29).lineTo(-11, -30).closePath().fill(0x284b5d);
     }
     const tool = new Graphics();
+    if (cook && art) {
+      tool.moveTo(-10, -65).lineTo(9, -65).lineTo(14, -30).lineTo(-14, -30).closePath().fill(0xf3e8cf).stroke({ color: 0x8a765b, width: 1.5 });
+      tool.roundRect(-7, -48, 14, 10, 2).fill(0xd1c4a6);
+      tool.ellipse(0, -109, 15, 7).fill(0xfff6df).stroke({ color: 0xb0a58c, width: 1.5 });
+      tool.roundRect(-11, -122, 22, 15, 5).fill(0xfff6df);
+    }
     if (!art) tool.roundRect(12, -17, 7, 39, 3).fill(0x75482e).stroke({ color: BRAND.colors.outline, width: 1.5 }).ellipse(16, -21, 10, 6).fill(0xb4c4c7).stroke({ color: BRAND.colors.outline, width: 1.5 });
     worker.addChild(shadow, body, tool);
     this.world.addChild(worker);
@@ -965,7 +1024,7 @@ export class Game {
     protectionAura.circle(0, -10, 42).fill({ color: BRAND.colors.safe, alpha: 0.16 }).circle(0, -10, 42).stroke({ color: BRAND.colors.safe, width: 3, alpha: 0.7 });
     protectionAura.visible = false;
     const pack = new Graphics();
-    pack.position.set(-18, -8);
+    pack.position.set(-30, -74);
     // Illustrated actors remain one poseable display object, just like the
     // procedural body. The fallback keeps development builds playable if an
     // asset is ever omitted from the manifest.
@@ -1033,22 +1092,23 @@ export class Game {
     for (const slot of PAD_SLOTS) {
       const container = new Container();
       this.place(container, slot.x, slot.y, -15);
+      container.zIndex = -780;
+      container.label = 'upgrade-floor-pad';
       const fixedId = slot.fixed;
       const plate = new Graphics();
-      const chrome = new Graphics();
-      // The trigger stays on the ground while its icon/name/price mount to an
-      // upright shop sign, keeping the offer readable around boots and cargo.
-      const icon = worldText('', 26, 0xffffff, '800');
-      icon.position.set(0, -89);
-      const title = worldText('', 12, 0xfff0cf, '800');
-      title.position.set(0, -61);
-      const detail = worldText('', 15, 0xffffff, '800');
-      detail.position.set(0, -34);
+      const ink = new Container();
+      ink.setFromMatrix(new Matrix(.9, -.45, .9, .45, 0, 0));
+      const icon = worldText('', 28, 0xfff8e7, '900');
+      icon.position.set(0, -15);
+      const title = worldText('', 12, 0xfff0cf, '900');
+      title.visible = false;
+      const detail = worldText('', 20, 0xffffff, '900');
+      detail.position.set(0, 17);
       const progress = new Graphics();
-      progress.position.set(0, -89);
-      container.addChild(plate, chrome, progress, icon, title, detail);
+      ink.addChild(icon, title, detail);
+      container.addChild(plate, progress, ink);
       this.world.addChild(container);
-      this.upgradePads.push({ id: fixedId ?? PAD_PRIORITY[0]!, fixed: fixedId, x: slot.x, y: slot.y, paid: 0, lockedUntilExit: false, container, plate, chrome, icon, title, detail, progress, paintKey: '', dwell: 0 });
+      this.upgradePads.push({ id: fixedId ?? PAD_PRIORITY[0]!, fixed: fixedId, x: slot.x, y: slot.y, paid: fixedId ? this.save.contributions[fixedId] ?? 0 : 0, lockedUntilExit: false, container, plate, icon, title, detail, progress, paintKey: '', dwell: 0 });
     }
     this.resolvePadSlots();
   }
@@ -1059,7 +1119,14 @@ export class Game {
    */
   private resolvePadSlots(): void {
     const queue = PAD_PRIORITY.filter(id =>
-      isUpgradeAvailable(id, this.save) && this.save.upgrades[id] < UPGRADE_BY_ID[id].maxLevel);
+      isUpgradeAvailable(id, this.save) && this.save.upgrades[id] < UPGRADE_BY_ID[id].maxLevel)
+      .sort((a, b) => {
+        // Keep funded projects first, surface the crew milestone, then rotate
+        // toward the least-upgraded lines instead of hiding them behind max levels.
+        const funded = Number(Boolean(this.save.contributions[b])) - Number(Boolean(this.save.contributions[a]));
+        const crew = Number(b === 'worker' && this.save.upgrades.worker === 0) - Number(a === 'worker' && this.save.upgrades.worker === 0);
+        return funded || crew || this.save.upgrades[a] - this.save.upgrades[b];
+      });
     const taken = new Set<UpgradeId>();
     // Slots mid-payment keep what they have.
     for (const pad of this.upgradePads) if (pad.paid > 0) taken.add(pad.id);
@@ -1068,7 +1135,7 @@ export class Game {
       // A pinned slot always offers its own line, and hides once that line is maxed.
       if (pad.fixed) {
         pad.id = pad.fixed;
-        pad.container.visible = this.save.upgrades[pad.fixed] < UPGRADE_BY_ID[pad.fixed].maxLevel;
+        pad.container.visible = pad.fixed === 'defense' || this.save.upgrades[pad.fixed] < UPGRADE_BY_ID[pad.fixed].maxLevel;
         continue;
       }
       if (pad.paid > 0) continue;
@@ -1080,6 +1147,7 @@ export class Game {
       }
       cursor += 1;
       taken.add(next);
+      pad.paid = this.save.contributions[next] ?? 0;
       if (pad.id !== next) {
         pad.id = next;
         pad.paintKey = '';
@@ -1093,8 +1161,8 @@ export class Game {
     const specs = [
       // Build plates are paid in timber hauled on the player's back, not cash.
       { kind: 'zone2' as const, payment: 'wood' as const, x: 2390, y: 900, cost: ECONOMY.zone2Cost, requires: 30, title: 'OPEN FRONTIER' },
-      // Sits at the south gap it opens, below the furnace so its sign stays clear.
-      { kind: 'dock' as const, payment: 'wood' as const, x: 1010, y: 1385, cost: ECONOMY.dockCost, requires: 45, title: 'THAW SHORELINE' },
+      // Offset into the yard so the closed shoreline gate cannot cover the price.
+      { kind: 'dock' as const, payment: 'wood' as const, x: 1180, y: 1210, cost: ECONOMY.dockCost, requires: 45, title: 'THAW SHORELINE' },
       // Later expedition passes use cash and only become reachable in sequence.
       { kind: 'glacier' as const, payment: 'cash' as const, x: 4210, y: 2200, cost: ECONOMY.glacierCost, requires: 0, title: 'GLACIER REACH' },
       { kind: 'whiteout' as const, payment: 'cash' as const, x: 6610, y: 3800, cost: ECONOMY.whiteoutCost, requires: 0, title: 'WHITEOUT EXPANSE' }
@@ -1102,21 +1170,27 @@ export class Game {
     for (const spec of specs) {
       const container = new Container();
       this.place(container, spec.x, spec.y, -20);
+      container.zIndex = -779;
+      container.label = 'build-floor-pad';
       const plate = new Graphics();
-      const chrome = new Graphics();
-      // A compact requirement dial hangs on the sign. Its green rim fills as the
-      // resource arrives, with a drawn log/bill pictogram and remaining count inside.
+      const ink = new Container();
+      ink.setFromMatrix(new Matrix(.9, -.45, .9, .45, 0, 0));
+      const progress = new Graphics();
       const badge = new Graphics();
-      badge.position.set(0, -56);
-      const badgeCount = worldText(`${spec.requires}`, 13, 0xffffff, '900');
-      badgeCount.position.set(0, -48);
+      badge.position.set(-22, 20);
+      badge.scale.set(.75);
+      const badgeCount = worldText(`${spec.requires}`, 20, 0xffffff, '900');
+      badgeCount.position.set(12, 16);
       const title = worldText(spec.title, 12, 0xffffff, '800');
-      title.position.set(0, -80);
-      const detail = worldText('', 11, 0xfff3d0, '800');
-      detail.position.set(0, -21);
-      container.addChild(plate, chrome, badge, badgeCount, detail, title);
+      title.visible = false;
+      const detail = worldText('⚒', 34, 0xfff3d0, '900');
+      detail.scale.set(.82);
+      detail.position.set(0, -18);
+      ink.addChild(badge, badgeCount, detail, title);
+      container.addChild(plate, progress, ink);
       this.world.addChild(container);
-      this.unlockPads.push({ ...spec, paid: 0, delivered: 0, lockedUntilExit: false, container, plate, chrome, title, detail, badge, badgeCount, paintKey: '', dwell: 0 });
+      const contributed = this.save.contributions[spec.kind] ?? 0;
+      this.unlockPads.push({ ...spec, paid: spec.payment === 'cash' ? contributed : 0, delivered: spec.payment === 'wood' ? contributed : 0, lockedUntilExit: false, container, plate, title, detail, badge, badgeCount, progress, paintKey: '', dwell: 0 });
     }
   }
 
@@ -1231,8 +1305,8 @@ export class Game {
   private buildProps(): void {
     // Clustered in the Stores district, with a few working crates by the cookout.
     const crates: Array<[number, number, number]> = [
-      [420, 960, 3], [540, 1010, 2], [430, 1120, 2], [620, 950, 2],
-      [1080, 480, 2], [1330, 500, 3], [1520, 700, 2]
+      [420, 960, 3], [540, 1010, 2], [390, 1070, 2], [620, 950, 2],
+      [1080, 480, 2], [1330, 500, 3], [1500, 450, 2]
     ];
     for (const [x, y, count] of crates) {
       const g = new Graphics();
@@ -1241,7 +1315,7 @@ export class Game {
       this.world.addChild(g);
     }
 
-    const barrels: Array<[number, number]> = [[700, 1080], [560, 1150], [1400, 420], [1600, 760], [890, 470]];
+    const barrels: Array<[number, number]> = [[700, 1020], [470, 1050], [1400, 420], [1590, 460], [890, 470]];
     for (const [x, y] of barrels) {
       const g = new Graphics();
       drawBarrel(g);
@@ -1432,6 +1506,7 @@ export class Game {
 
     if (this.player.alive) {
       this.updatePlayer(dt);
+      this.updateHealing(dt);
       this.updateCombat(dt);
       this.updateChopping(dt);
       this.updateTimberPost(dt);
@@ -1446,6 +1521,7 @@ export class Game {
     this.updateEnemies(dt);
     this.updateDrops(dt);
     this.updateProduction(dt);
+    this.updateCook(dt);
     this.updateCustomers(dt);
     this.updateCash(dt);
     this.updateRaid(dt);
@@ -1547,10 +1623,13 @@ export class Game {
    */
   private getActiveBlockers(): Rect[] {
     // Standing trees block; felled ones do not, so the key tracks tree state too.
-    const key = `${this.save.unlocks.zone2}|${this.save.unlocks.dock}|${this.save.unlocks.glacier}|${this.save.unlocks.whiteout}|${this.treeVersion}`;
+    const key = `${this.save.unlocks.zone2}|${this.save.unlocks.dock}|${this.save.unlocks.glacier}|${this.save.unlocks.whiteout}|${this.treeVersion}|${this.save.upgrades.defense}`;
     if (key !== this.blockerCacheKey) {
       this.blockerCacheKey = key;
       this.blockerCache = [...this.blockers];
+      if (defenseTierFor(this.save.upgrades.defense).kind !== 'spear') {
+        for (const post of this.defenders) this.blockerCache.push({ x: post.x - 30, y: post.y - 25, width: 60, height: 50 });
+      }
       for (const tree of this.trees) if (tree.alive) this.blockerCache.push(tree.blocker);
       if (!this.save.unlocks.zone2) this.blockerCache.push({ x: WORLD.zoneGate.x - 30, y: WORLD.zoneGate.y - 150, width: 60, height: 300 });
       if (!this.save.unlocks.glacier) this.blockerCache.push({ x: WORLD.glacierGate.x - 30, y: WORLD.glacierGate.y - 150, width: 60, height: 300 });
@@ -1674,6 +1753,21 @@ export class Game {
     return distanceSquared(this.player.x, this.player.y, WORLD.furnace.x, WORLD.furnace.y) <= radius * radius;
   }
 
+  private updateHealing(dt: number): void {
+    const maximum = maxHealthFor(this.save.upgrades.maxHealth);
+    this.healing = this.player.alive && this.isPlayerSafe() && this.player.health < maximum;
+    if (!this.healing) { this.healingLabelTimer = 0; this.healedSinceLabel = 0; return; }
+    const recovered = Math.min(maximum - this.player.health, healingPerSecondFor(this.save.upgrades.infirmary) * dt);
+    this.player.health += recovered;
+    this.healedSinceLabel += recovered;
+    this.healingLabelTimer += dt;
+    if (this.healingLabelTimer >= 1 || this.player.health >= maximum) {
+      this.spawnGainLabel(this.player.x, this.player.y, `+${Math.round(this.healedSinceLabel)} HP`, BRAND.colors.safe, 105);
+      this.healingLabelTimer = 0;
+      this.healedSinceLabel = 0;
+    }
+  }
+
   private updateCombat(dt: number): void {
     this.player.attackCooldown = Math.max(0, this.player.attackCooldown - dt);
     this.player.attackVisual = Math.max(0, this.player.attackVisual - dt);
@@ -1735,7 +1829,7 @@ export class Game {
     if (target) target.targetRing.visible = true;
   }
 
-  private damageEnemy(enemy: EnemyEntity, overrideDamage?: number): void {
+  private damageEnemy(enemy: EnemyEntity, overrideDamage?: number, defenseHit = false): void {
     const damage = overrideDamage ?? weaponDamageFor(this.save.upgrades.weaponDamage, this.save.upgrades.weaponTier);
     enemy.health = Math.max(0, enemy.health - damage);
     enemy.state = enemy.health <= 0 ? 'defeat' : 'hurt';
@@ -1744,9 +1838,11 @@ export class Game {
     this.spawnDamageLabel(enemy.x, enemy.y, damage, enemy.health <= 0 ? 0xffdf78 : 0xffffff, 78);
     this.spawnBurst(enemy.x, enemy.y - 20, enemy.config.accent, enemy.health <= 0 ? 11 : 6);
     this.audio.play('impact', enemy.health <= 0 ? 1.25 : 1);
-    this.audio.haptic(enemy.health <= 0 ? [18, 30, 28] : 12);
-    this.camera.shake = this.save.settings.reducedMotion ? 0 : enemy.health <= 0 ? 11 : 6;
-    this.hitStop = this.save.settings.reducedMotion ? 0 : enemy.health <= 0 ? 0.055 : 0.028;
+    if (!defenseHit) {
+      this.audio.haptic(enemy.health <= 0 ? [18, 30, 28] : 12);
+      this.camera.shake = this.save.settings.reducedMotion ? 0 : enemy.health <= 0 ? 11 : 6;
+      this.hitStop = this.save.settings.reducedMotion ? 0 : enemy.health <= 0 ? 0.055 : 0.028;
+    }
     if (enemy.health <= 0) this.defeatEnemy(enemy);
   }
 
@@ -1755,13 +1851,12 @@ export class Game {
     enemy.dropped = true;
     enemy.targetRing.visible = false;
     enemy.alert.visible = false;
-    if (!enemy.isRaid) {
-      this.save.stats.bearsDefeated += 1;
-      for (let index = 0; index < enemy.config.meatYield; index += 1) {
-        const angle = (index / enemy.config.meatYield) * Math.PI * 2 + Math.random() * 0.4;
-        this.createCargoDrop('meat', enemy.x + Math.cos(angle) * 35, enemy.y + Math.sin(angle) * 25);
-      }
+    this.save.stats.bearsDefeated += 1;
+    for (let index = 0; index < enemy.config.meatYield; index += 1) {
+      const angle = (index / enemy.config.meatYield) * Math.PI * 2 + Math.random() * 0.4;
+      this.createCargoDrop('meat', enemy.x + Math.cos(angle) * 35, enemy.y + Math.sin(angle) * 25, 1, enemy.isRaid ? 300 : 45);
     }
+    this.createCashDrop(ECONOMY.bearCashDrop, enemy);
     this.requestSave();
   }
 
@@ -1979,7 +2074,7 @@ export class Game {
     this.spawnBurst(enemy.x, enemy.y, 0xd9fbff, 9);
   }
 
-  private createCargoDrop(kind: CargoKind, x: number, y: number, amount = 1): void {
+  private createCargoDrop(kind: CargoKind, x: number, y: number, amount = 1, lifetime = 45): void {
     const container = new Container();
     this.place(container, x, y, 25);
     const shadow = contactShadow(20, 8, 0.2);
@@ -2004,7 +2099,7 @@ export class Game {
     }
     container.addChild(shadow, bundle);
     this.world.addChild(container);
-    this.cargoDrops.push({ kind, amount, x, y, vx: 0, vy: 0, life: 45, container });
+    this.cargoDrops.push({ kind, amount, x, y, vx: 0, vy: 0, life: lifetime, container });
   }
 
   private updateDrops(dt: number): void {
@@ -2110,11 +2205,50 @@ export class Game {
     } else this.save.station.fishProgress = Math.min(this.save.station.fishProgress, .98);
   }
 
-  /**
-   * Ready food is not a remote counter inventory. The Trailwarden must collect it
-   * from the station output and carry it to the Mess Hall, putting the middle haul
-   * of the hospitality loop back under player control.
-   */
+  private updateCook(dt: number): void {
+    const level = this.save.upgrades.worker;
+    if (level <= 0) return;
+    const outbound = [{ x: 1360, y: 780 }, { x: 900, y: 780 }, { x: 760, y: 700 }];
+    const inbound = [{ x: 900, y: 780 }, { x: 1360, y: 780 }, WORLD.butcherOutput];
+    if (this.cookDelivering && this.save.station.cookMeals === 0) {
+      this.cookDelivering = false;
+      this.cookWaypoint = 0;
+    }
+    // At the output, take real meals out of stock. The carried batch is saved so
+    // quitting during a delivery neither loses food nor duplicates it on return.
+    if (!this.cookDelivering && Math.hypot(this.cookPosition.x - WORLD.butcherOutput.x, this.cookPosition.y - WORLD.butcherOutput.y) < 5) {
+      this.cookWaypoint = 3;
+      if (this.save.station.meals > 0) {
+        this.save.station.cookMeals = Math.min(level * 2, this.save.station.meals);
+        this.save.station.meals -= this.save.station.cookMeals;
+        this.cookDelivering = true;
+        this.cookWaypoint = 0;
+        this.requestSave();
+      }
+    }
+    const target = (this.cookDelivering ? outbound : inbound)[this.cookWaypoint];
+    const visual = this.station.workerVisuals[1]!;
+    if (target) {
+      const direction = normalize(target.x - this.cookPosition.x, target.y - this.cookPosition.y);
+      const step = Math.min(direction.magnitude, (level === 1 ? 190 : 270) * dt);
+      this.cookPosition.x += direction.x * step;
+      this.cookPosition.y += direction.y * step;
+      if (step > 0) visual.scale.x = facesLeft(direction.x, direction.y) ? -1 : 1;
+      if (direction.magnitude < 5) this.cookWaypoint += 1;
+    }
+    this.place(visual, this.cookPosition.x, this.cookPosition.y, 35);
+    const key = `${this.save.station.cookMeals}`;
+    if (this.cookTray.label !== key) {
+      this.cookTray.label = key;
+      this.cookTray.clear();
+      for (let i = 0; i < this.save.station.cookMeals; i += 1) {
+        this.cookTray.ellipse(28, -50 - i * 9, 17, 5).fill(0xfff0cf).stroke({ color: 0xd8a75b, width: 2 });
+        this.cookTray.ellipse(28, -52 - i * 9, 10, 3).fill(BRAND.colors.ember);
+      }
+    }
+  }
+
+  /** The player can still collect and serve meals alongside the hired cook. */
   private updateMealPickups(dt: number): void {
     this.mealPickupTimer = Math.max(0, this.mealPickupTimer - dt);
     if (this.mealPickupTimer > 0) return;
@@ -2177,12 +2311,15 @@ export class Game {
         if (Math.hypot(customer.x - ENTRY_INSIDE.x, customer.y - ENTRY_INSIDE.y) < 26) customer.entered = true;
         continue;
       }
-      const slotX = WORLD.counter.x - 20 - queueIndex * 58;
-      const slotY = WORLD.counter.y + 105 + Math.min(2, queueIndex) * 3;
+      // Two connected rows keep all eight guests inside the yard and off the store crates.
+      const slotX = WORLD.counter.x - 20 - (queueIndex < 4 ? queueIndex : 7 - queueIndex) * 58;
+      const slotY = WORLD.counter.y + 105 + (queueIndex < 4 ? 0 : 90);
       this.moveCustomerToward(customer, slotX, slotY, dt, 280);
       if (Math.hypot(customer.x - slotX, customer.y - slotY) < 5) customer.state = queueIndex === 0 ? 'waiting' : 'arriving';
       // Nobody gets fed unless the Trailwarden is behind the counter working the line.
       if (queueIndex === 0 && customer.state === 'waiting' && this.isPlayerServing()) this.tryServeCustomer(customer);
+      if (queueIndex === 0 && customer.state === 'waiting' && this.save.station.cookMeals > 0
+        && this.save.upgrades.worker > 0 && this.cookDelivering && this.cookWaypoint >= 3) this.tryServeCustomer(customer, true);
     }
 
     for (let index = this.customers.length - 1; index >= 0; index -= 1) {
@@ -2266,13 +2403,12 @@ export class Game {
     }
   }
 
-  /** A guest takes one cooked portion carried in by the Trailwarden. Raw food and
-   * station stock are deliberately ineligible: both hauling legs are mandatory. */
-  private tryServeCustomer(customer: CustomerEntity): void {
+  /** A guest takes one actual carried meal, from either the player or hired cook. */
+  private tryServeCustomer(customer: CustomerEntity, servedByCook = false): void {
     // The bubble is a preference, never a queue deadlock. A guest takes the other
     // cooked plate if their preferred dish is unavailable, so batches always clear.
-    const servingFish = this.player.fishMeals > 0 && (customer.wantsFish || this.player.meals <= 0);
-    const carried = servingFish ? this.player.fishMeals : this.player.meals;
+    const servingFish = !servedByCook && this.player.fishMeals > 0 && (customer.wantsFish || this.player.meals <= 0);
+    const carried = servedByCook ? this.save.station.cookMeals : servingFish ? this.player.fishMeals : this.player.meals;
     if (carried <= 0) {
       // Nothing to hand over — the guest keeps waiting and keeps showing what they want.
       customer.bubble.visible = true;
@@ -2284,9 +2420,11 @@ export class Game {
       : mealValueFor(this.save.upgrades.saleValue);
     const result = purchaseMeal(carried, unit);
     if (!result.sold) return;
-    if (servingFish) this.player.fishMeals = result.ready;
+    if (servedByCook) this.save.station.cookMeals = result.ready;
+    else if (servingFish) this.player.fishMeals = result.ready;
     else this.player.meals = result.ready;
-    this.streamParticle(this.player.x, this.player.y - 40, customer.x, customer.y - 30,
+    const server = servedByCook ? this.cookPosition : this.player;
+    this.streamParticle(server.x, server.y - 40, customer.x, customer.y - 30,
       servingFish ? BRAND.colors.fish : BRAND.colors.gold);
 
     this.createCashDrop(result.cashDrop);
@@ -2301,11 +2439,11 @@ export class Game {
     this.requestSave();
   }
 
-  private createCashDrop(value: number): void {
+  private createCashDrop(value: number, origin: Vec2 = WORLD.cashZone): void {
     const index = this.cashDrops.length;
     const angle = index * 1.9;
-    const x = WORLD.cashZone.x + Math.cos(angle) * Math.min(35, 8 + index * 3);
-    const y = WORLD.cashZone.y + Math.sin(angle) * Math.min(28, 7 + index * 2);
+    const x = origin.x + Math.cos(angle) * Math.min(35, 8 + index * 3);
+    const y = origin.y + Math.sin(angle) * Math.min(28, 7 + index * 2);
     const container = new Container();
     this.place(container, x, y, 25);
     const shadow = contactShadow(19, 9, 0.2);
@@ -2341,7 +2479,7 @@ export class Game {
   private updateUpgradePads(dt: number): void {
     const settled = Math.hypot(this.player.vx, this.player.vy) < PAD_SETTLE_SPEED;
     for (const pad of this.upgradePads) {
-      const near = distanceSquared(this.player.x, this.player.y, pad.x, pad.y) < 55 ** 2;
+      const near = distanceSquared(this.player.x, this.player.y, pad.x, pad.y) < 35 ** 2;
       if (!near || !isUpgradeAvailable(pad.id, this.save)) {
         pad.lockedUntilExit = false;
         pad.dwell = 0;
@@ -2356,6 +2494,7 @@ export class Game {
       const cost = upgradeCost(pad.id, level);
       this.payTowardPad(pad, cost, dt, () => {
         this.save.upgrades[pad.id] += 1;
+        delete this.save.contributions[pad.id];
         pad.paid = 0;
         pad.lockedUntilExit = true;
         if (pad.id === 'maxHealth') this.player.health = maxHealthFor(this.save.upgrades.maxHealth);
@@ -2366,7 +2505,7 @@ export class Game {
         this.audio.play('upgrade');
         this.audio.haptic([18, 30, 36]);
         this.spawnBurst(pad.x, pad.y, BRAND.colors.gold, 18);
-        this.callbacks.toast(`${config.label} upgraded · ${config.effectText(this.save.upgrades[pad.id])}`);
+        this.callbacks.toast(`${config.label} upgraded · ${config.effectText(this.save.upgrades[config.id])}`);
         this.onActualEvent('upgrade');
         this.requestSave();
       });
@@ -2378,7 +2517,7 @@ export class Game {
     for (const pad of this.unlockPads) {
       if (!this.unlockPrerequisiteMet(pad.kind)) continue;
       const unlocked = this.save.unlocks[pad.kind];
-      const near = distanceSquared(this.player.x, this.player.y, pad.x, pad.y) < 74 ** 2;
+      const near = distanceSquared(this.player.x, this.player.y, pad.x, pad.y) < 43 ** 2;
       if (!near) { pad.lockedUntilExit = false; pad.dwell = 0; continue; }
       if (unlocked || pad.lockedUntilExit) continue;
       pad.dwell = settled ? pad.dwell + dt : 0;
@@ -2398,6 +2537,7 @@ export class Game {
       this.deliverTimer = 0.07;
       this.player.wood -= 1;
       pad.delivered += 1;
+      this.save.contributions[pad.kind] = pad.delivered;
       this.streamParticle(this.player.x, this.player.y - 40, pad.x, pad.y - 30, BRAND.colors.timber);
       this.audio.play('build', .4);
       if (pad.delivered >= pad.requires) this.completeUnlock(pad);
@@ -2415,17 +2555,21 @@ export class Game {
       if (this.insufficientToastTimer <= 0) { this.callbacks.toast(`Need $${Math.max(0, cost - pad.paid)} more`); this.insufficientToastTimer = 2.4; }
       return;
     }
-    const targetPayment = Math.max(1, Math.floor(dt * 120));
+    // Large purchases should celebrate the investment without making the player
+    // stand still for ten seconds after already earning the full price.
+    const targetPayment = Math.max(1, Math.ceil(dt * Math.max(120, cost / 2)));
     const payment = Math.min(targetPayment, this.save.cash, cost - pad.paid);
     if (payment <= 0) return;
     this.save.cash -= payment;
     pad.paid += payment;
+    this.save.contributions['id' in pad ? pad.id : pad.kind] = pad.paid;
     this.streamParticle(this.player.x, this.player.y - 22, pad.x, pad.y, 0x72dd8d);
     this.audio.play('build', .32);
     if (pad.paid >= cost) complete();
   }
 
   private completeUnlock(pad: UnlockPad): void {
+    delete this.save.contributions[pad.kind];
     pad.paid = 0;
     pad.lockedUntilExit = true;
     if (pad.kind === 'zone2') {
@@ -2541,21 +2685,37 @@ export class Game {
   }
 
   private updateGuard(dt: number): void {
-    const level = this.save.upgrades.defense;
-    if (level <= 0) return;
-    this.guardTimer -= dt;
-    if (this.guardTimer > 0) return;
-    let target: EnemyEntity | null = null;
-    let best = 480 ** 2;
-    for (const enemy of this.enemies) {
-      if (!enemy.isRaid || !enemy.alive || enemy.state === 'defeat') continue;
-      const distance = distanceSquared(enemy.x, enemy.y, WORLD.campGate.x, WORLD.campGate.y);
-      if (distance < best) { best = distance; target = enemy; }
+    const tier = defenseTierFor(this.save.upgrades.defense);
+    for (const post of this.defenders) {
+      post.cooldown = Math.max(0, post.cooldown - dt);
+      let target: EnemyEntity | null = null;
+      let best = tier.range ** 2;
+      for (const enemy of this.enemies) {
+        if (!enemy.isRaid || !enemy.alive || enemy.state === 'defeat') continue;
+        const distance = distanceSquared(enemy.x, enemy.y, post.x, post.y);
+        if (distance < best) { best = distance; target = enemy; }
+      }
+      if (!target) continue;
+      const fromX = isoX(post.x, post.y) + post.aim.x;
+      const fromY = isoY(post.x, post.y) - post.height;
+      const toX = isoX(target.x, target.y);
+      const toY = isoY(target.x, target.y) - 25;
+      post.aim.rotation = Math.atan2(toY - fromY, toX - fromX);
+      if (post.cooldown > 0) continue;
+      post.cooldown = tier.cadence;
+      post.lastShot = this.simulationTime;
+      this.defenseShots += 1;
+      const shot = this.particlePool.acquire();
+      shot.moveTo(-12, 0).lineTo(10, 0).stroke({ color: tier.kind === 'turret' ? 0xffc36b : 0xf7edd0, width: tier.kind === 'turret' ? 4 : 2 });
+      if (tier.kind !== 'turret') shot.moveTo(5, -4).lineTo(13, 0).lineTo(5, 4).stroke({ color: 0xe7fcff, width: 2 });
+      shot.position.set(fromX, fromY);
+      shot.rotation = post.aim.rotation;
+      shot.zIndex = depth(post.x, post.y, 320);
+      this.effects.addChild(shot);
+      const duration = tier.kind === 'turret' ? .07 : .16;
+      this.particles.push({ graphic: shot, x: fromX, y: fromY, vx: (toX - fromX) / duration, vy: (toY - fromY) / duration, life: duration, maxLife: duration, worldSpace: true });
+      this.damageEnemy(target, tier.damage, true);
     }
-    if (!target) return;
-    this.guardTimer = Math.max(.32, 1.25 - level * .14);
-    this.streamParticle(1110, 710, target.x, target.y - 20, BRAND.colors.ember);
-    this.damageEnemy(target, 9 + level * 6);
   }
 
   private finishRaid(heldAtGate: boolean): void {
@@ -2570,7 +2730,7 @@ export class Game {
     if (heldAtGate) {
       this.save.stats.raidsWon += 1;
       const reward = 34 + this.save.stats.raidsWon * 8;
-      for (let index = 0; index < 4; index += 1) this.createCashDrop(Math.floor(reward / 4));
+      for (let index = 0; index < 4; index += 1) this.createCashDrop(Math.floor(reward / 4) + (index < reward % 4 ? 1 : 0));
       this.callbacks.toast(`Surge repelled · $${reward} defense bonus waiting`);
       this.audio.play('upgrade');
     } else {
@@ -2651,6 +2811,20 @@ export class Game {
     else if (step === 'deliver' && this.save.stats.woodSold > 0) this.advanceTutorial('cash');
     else if (step === 'cash' && UPGRADES.some(upgrade => this.save.upgrades[upgrade.id] > 0)) this.advanceTutorial('upgrade');
     else if (step === 'upgrade' && this.save.stats.mealsSold > 0) this.advanceTutorial('complete');
+    if (this.save.tutorial === 'complete') {
+      const frontier = this.unlockPads.find(pad => pad.kind === 'zone2')!;
+      const shoreline = this.unlockPads.find(pad => pad.kind === 'dock')!;
+      const text = !this.save.unlocks.zone2 ? `Eastern Frontier · Deliver ${frontier.requires - frontier.delivered} more logs`
+        : !this.save.unlocks.dock ? `Open the shoreline · Deliver ${shoreline.requires - shoreline.delivered} more logs`
+        : this.save.upgrades.worker === 0 ? 'Hire a meal-delivery cook at the Cook pad'
+        : !this.save.unlocks.glacier ? `Glacier Reach · Bank $${ECONOMY.glacierCost} to open the pass`
+        : !this.save.unlocks.whiteout ? `Whiteout Expanse · Bank $${ECONOMY.whiteoutCost} to open the pass`
+        : 'Master the frontier · Upgrade your crew, weapons and defenses';
+      if (text !== this.objectiveKey) {
+        this.objectiveKey = text;
+        this.callbacks.objective('complete', text);
+      }
+    }
   }
 
   private onActualEvent(event: 'deliver' | 'cash' | 'upgrade' | 'chop'): void {
@@ -2894,14 +3068,16 @@ export class Game {
     // A step rises from and returns to the contact point; it never dips below the
     // ground plane like the old sine bob, which made the illustrated actor hover.
     player.body.position.set(stepSway * 1.8, -stepLift * 4.5);
-    player.pack.y = -8 - stepLift * 2.2;
+    player.pack.y = -74 - stepLift * 4.5;
     player.shadow.scale.set(1 - stepLift * .07, 1 + stepLift * .035);
     const facingLeft = facesLeft(Math.cos(player.facing), Math.sin(player.facing));
     const facingScale = facingLeft ? -1 : 1;
     const idleBreath = !moving && player.alive && !this.save.settings.reducedMotion ? Math.sin(this.simulationTime * 2.4) * .008 : 0;
     player.body.scale.set(facingScale * (1 + landing * .018), 1 - landing * .035 + idleBreath);
     player.pack.scale.x = facingLeft ? -1 : 1;
-    player.pack.x = facingLeft ? 18 : -18;
+    const cargoColumns = Number(player.meat + player.fish > 0) + Number(player.meals + player.fishMeals > 0) + Number(player.wood > 0);
+    const packOffset = 30 + Math.max(0, cargoColumns - 1) * 17;
+    player.pack.x = facingLeft ? packOffset : -packOffset;
     const cargoLoad = clamp((player.meat + player.fish + player.meals + player.fishMeals + player.wood) / 12, 0, 1);
     player.body.rotation = -cargoLoad * 0.1 + stepSway * .026;
     const weaponTier = this.save.upgrades.weaponTier;
@@ -2981,7 +3157,7 @@ export class Game {
       const slice = Math.max(4.5, step * .92);
       for (let index = 0; index < stack.length; index += 1) {
         const kind = stack[index]!;
-        const y = 12 - index * step;
+        const y = -index * step;
         const lean = Math.sin(index * .9 + stackIndex * 1.7) * 1.8;
         const x = centerX + lean;
         if (kind === 'wood') {
@@ -3060,6 +3236,7 @@ export class Game {
   }
 
   private renderStations(): void {
+    for (const post of this.defenders) post.flash.visible = defenseTierFor(this.save.upgrades.defense).kind === 'turret' && this.simulationTime - post.lastShot < .08;
     const level = this.save.upgrades.furnace;
     const radius = warmRadiusFor(level);
     // A world-space circle of radius R projects to an ellipse of R by R/2.
@@ -3067,9 +3244,15 @@ export class Game {
     if (radius !== this.warmRingRadius) {
       this.warmRingRadius = radius;
       this.station.warmRing.clear()
-        .ellipse(0, 0, radius, radius / 2).fill({ color: 0xffc052, alpha: .055 })
-        .ellipse(0, 0, radius, radius / 2).stroke({ color: 0xffb44e, alpha: .3, width: 5 });
+        .ellipse(0, 0, radius, radius / 2).fill({ color: BRAND.colors.safe, alpha: .08 })
+        .ellipse(0, 0, radius, radius / 2).stroke({ color: BRAND.colors.safe, alpha: .65, width: 3 })
+        .ellipse(0, 0, radius - 9, (radius - 9) / 2).stroke({ color: 0xe7ffe9, alpha: .25, width: 1.5 });
+      for (const offset of [-1, 1]) {
+        this.station.warmRing.roundRect(offset * (radius - 28) - 3, -9, 6, 18, 2)
+          .roundRect(offset * (radius - 28) - 9, -3, 18, 6, 2).fill({ color: 0xdaffe4, alpha: .85 });
+      }
     }
+    this.station.warmRing.alpha = this.healing && !this.save.settings.reducedMotion ? .85 + Math.sin(this.simulationTime * 3) * .15 : .8;
     const flamePulse = 1 + Math.sin(this.simulationTime * 8) * .08;
     this.station.furnaceFlame.scale.set(flamePulse, 1 / flamePulse);
     this.station.furnaceGlow.scale.set(1 + level * .12);
@@ -3097,7 +3280,7 @@ export class Game {
     this.station.serveHint.text = this.isPlayerServing()
       ? (frontGuest ? (hasFrontMeal ? 'SERVING' : frontGuest.wantsFish ? 'NEED FISH PLATE' : 'NEED COOKED MEAL') : 'WAITING FOR GUESTS')
       : waitingGuests > 0 ? `${waitingGuests} WAITING  ·  SERVE HERE` : 'SERVE COOKED  →  GET CASH';
-    const waiting = this.cashDrops.reduce((sum, item) => sum + item.value, 0);
+    const waiting = this.cashDrops.reduce((sum, item) => sum + (distanceSquared(item.x, item.y, WORLD.cashZone.x, WORLD.cashZone.y) < 70 ** 2 ? item.value : 0), 0);
     this.station.cashStock.text = waiting > 0 ? `$${waiting}` : '';
     this.drawProgressRing(this.station.fishProgress, this.save.station.fishProgress, BRAND.colors.fish, 34);
     this.station.fishStock.text = `FISH ${this.save.station.rawFish} · PLATES ${this.save.station.fishMeals}`;
@@ -3187,7 +3370,7 @@ export class Game {
    */
   private checkPadUnlocks(): void {
     const stats = this.save.stats;
-    const levels = PAD_PRIORITY.reduce((sum, id) => sum + this.save.upgrades[id], 0);
+    const levels = UPGRADES.reduce((sum, config) => sum + this.save.upgrades[config.id], 0);
     const signature = `${stats.mealsSold}|${stats.bearsDefeated}|${stats.deaths}|${this.save.unlocks.zone2}|${this.save.unlocks.raidSeen}|${levels}`;
     if (signature === this.padGateSignature) return;
     const firstEvaluation = this.padGateSignature === '';
@@ -3227,11 +3410,10 @@ export class Game {
         pad.icon.text = config.iconForLevel?.(level) ?? config.icon;
         pad.title.text = name;
         pad.detail.text = price;
-        paintUpgradePlate(pad.plate, 58, 42, state, category);
-        paintPadChrome(pad.chrome, state, category, Math.max(pad.title.width, pad.detail.width, pad.icon.width), -89, -34);
+        paintUpgradePlate(pad.plate, 40, 37, state, category);
         pad.container.alpha = maxed ? .62 : 1;
       }
-      this.drawProgressRing(pad.progress, maxed ? 0 : pad.paid / Math.max(1, cost), BRAND.colors.gold, 26);
+      this.drawPadProgress(pad.progress, pad.paid / Math.max(1, cost), 40, 37);
     }
     for (const pad of this.unlockPads) {
       const unlocked = this.save.unlocks[pad.kind];
@@ -3246,14 +3428,33 @@ export class Game {
       const key = `${state}|${label}|${remaining}`;
       if (key !== pad.paintKey) {
         pad.paintKey = key;
-        pad.detail.text = label;
+        pad.detail.text = unlocked ? '✓' : '⚒';
         pad.badgeCount.text = pad.payment === 'wood' ? `${remaining}` : `$${remaining}`;
-        paintResourceBadge(pad.badge, progress / Math.max(1, target), pad.payment, 19);
-        paintUpgradePlate(pad.plate, 62, 44, state, BRAND.colors.gold);
-        paintPadChrome(pad.chrome, state, BRAND.colors.gold, Math.max(pad.title.width, pad.detail.width, 66), -56, -21);
+        paintResourceBadge(pad.badge, 0, pad.payment, 13);
+        paintUpgradePlate(pad.plate, 48, 43, state, BRAND.colors.gold);
+        this.drawPadProgress(pad.progress, progress / Math.max(1, target), 48, 43);
       }
       pad.container.visible = available && !unlocked;
     }
+  }
+
+  private drawPadProgress(graphic: Graphics, progress: number, halfWidth: number, halfDepth: number): void {
+    const key = `${Math.round(progress * 1000)}|${halfWidth}|${halfDepth}`;
+    if (graphic.label === key) return;
+    graphic.label = key;
+    graphic.clear();
+    if (progress <= 0) return;
+    const corners = footprint(halfWidth, halfDepth);
+    let remaining = clamp(progress, 0, 1) * 4;
+    graphic.moveTo(corners[3]!.x, corners[3]!.y);
+    for (let i = 0; i < 4 && remaining > 0; i += 1) {
+      const from = corners[(i + 3) % 4]!;
+      const to = corners[i]!;
+      const amount = Math.min(1, remaining);
+      graphic.lineTo(from.x + (to.x - from.x) * amount, from.y + (to.y - from.y) * amount);
+      remaining -= 1;
+    }
+    graphic.stroke({ color: BRAND.colors.gold, width: 4, cap: 'round' });
   }
 
   private refreshWorldState(): void {
@@ -3261,7 +3462,7 @@ export class Game {
     this.station.glacierGate.visible = !this.save.unlocks.glacier;
     this.station.whiteoutGate.visible = !this.save.unlocks.whiteout;
     this.station.southGate.visible = !this.save.unlocks.dock;
-    this.station.guard.visible = this.save.upgrades.defense > 0;
+    this.refreshDefenses();
     this.station.fishBuilding.visible = this.save.unlocks.dock;
     this.station.fishDropZone.visible = this.save.unlocks.dock;
     this.station.fishOutput.visible = this.save.unlocks.dock;
@@ -3282,6 +3483,46 @@ export class Game {
       this.player.health,
       maxHealthFor(this.save.upgrades.maxHealth)
     );
+    const healing = this.player.alive && this.isPlayerSafe() && this.player.health < maxHealthFor(this.save.upgrades.maxHealth);
+    this.callbacks.hint(this.interactionHint(), healing);
+  }
+
+  private interactionHint(): InteractionHint | null {
+    if (!this.player.alive) return null;
+    const nearby = [...this.upgradePads, ...this.unlockPads]
+      .filter(pad => pad.container.visible && distanceSquared(this.player.x, this.player.y, pad.x, pad.y) < 155 ** 2)
+      .sort((a, b) => distanceSquared(this.player.x, this.player.y, a.x, a.y) - distanceSquared(this.player.x, this.player.y, b.x, b.y))[0];
+    if (nearby && 'id' in nearby) {
+      const config = UPGRADE_BY_ID[nearby.id];
+      const level = this.save.upgrades[nearby.id];
+      const effect = (next: number) => nearby.id === 'butcherSpeed'
+        ? `${butcherSecondsFor(next, this.save.upgrades.worker).toFixed(2)}s cook`
+        : nearby.id === 'weaponDamage' ? `${weaponDamageFor(next, this.save.upgrades.weaponTier)} damage`
+        : nearby.id === 'attackSpeed' ? `${attackCadenceFor(next, this.save.upgrades.weaponTier).toFixed(2)}s cadence`
+        : config.effectText(next);
+      if (level >= config.maxLevel) return { title: `${config.label} · MAX`, detail: config.effectText(level), action: 'Fully upgraded · Compound defenses ready', progress: 1 };
+      const cost = upgradeCost(nearby.id, level);
+      const remaining = Math.max(0, cost - nearby.paid);
+      const onPad = distanceSquared(this.player.x, this.player.y, nearby.x, nearby.y) < 35 ** 2;
+      return { title: `${config.label} · Upgrade ${level + 1}/${config.maxLevel}`, detail: `${effect(level)} → ${effect(level + 1)}`,
+        action: nearby.lockedUntilExit ? 'Upgraded! Step off to buy again'
+          : this.save.cash <= 0 ? `$${remaining} remaining · Sell timber or serve meals`
+          : onPad ? `Stand still to upgrade · $${remaining} remaining` : `Step onto the pad · $${remaining}`,
+        progress: nearby.paid / cost };
+    }
+    if (nearby && 'kind' in nearby) {
+      const total = nearby.payment === 'wood' ? nearby.requires : nearby.cost;
+      const paid = nearby.payment === 'wood' ? nearby.delivered : nearby.paid;
+      const remaining = total - paid;
+      const benefit = { zone2: 'New hunting grounds and furnace upgrades', dock: 'Catch frostfin and cook higher-value plates', glacier: 'Explore deeper forests and tougher wildlife', whiteout: 'Reach the final frostwild expedition' }[nearby.kind];
+      return { title: nearby.title.text, detail: benefit,
+        action: nearby.payment === 'wood' ? `Stand on the pad · ${remaining} logs remaining` : `Stand on the pad · $${remaining} remaining`,
+        progress: paid / total };
+    }
+    if (this.isPlayerSafe()) return { title: 'Hearth sanctuary', detail: this.player.health < maxHealthFor(this.save.upgrades.maxHealth)
+      ? `Recovering ${healingPerSecondFor(this.save.upgrades.infirmary)} HP each second` : 'Fully rested · Ready for the frostwild',
+      action: 'The green circle restores health', progress: this.player.health / maxHealthFor(this.save.upgrades.maxHealth), healing: true };
+    return null;
   }
 
   private requestSave(): void {

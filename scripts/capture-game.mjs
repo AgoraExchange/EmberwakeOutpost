@@ -39,6 +39,19 @@ for (const spec of [
   });
   await page.waitForTimeout(500);
   await page.screenshot({ path: path.join(output, `emberwake-${spec.name}-cargo.png`), fullPage: false });
+  await page.keyboard.down('a');
+  await page.waitForTimeout(120);
+  await page.keyboard.up('a');
+  await page.waitForTimeout(250);
+  await page.screenshot({ path: path.join(output, `emberwake-${spec.name}-cargo-left.png`), fullPage: false });
+  await page.evaluate(() => {
+    window.__EMBERWAKE__.setCargo(0, 0);
+    window.__EMBERWAKE__.setMeals(0, 0);
+    window.__EMBERWAKE__.setWood(0);
+    window.__EMBERWAKE__.teleport(1460, 790);
+  });
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: path.join(output, `emberwake-${spec.name}-defense-pad.png`), fullPage: false });
   await page.reload();
   await page.waitForFunction(() => window.__EMBERWAKE__?.spriteCount() >= 7);
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
@@ -46,7 +59,7 @@ for (const spec of [
     window.__EMBERWAKE__.setCargo(6, 0);
     window.__EMBERWAKE__.teleport(1200, 430);
   });
-  await page.waitForFunction(() => window.__EMBERWAKE__.getState().station.meals >= 3, undefined, { timeout: 12_000 });
+  await page.waitForFunction(() => window.__EMBERWAKE__.getState().station.meals >= 3, undefined, { timeout: 30_000 });
   // Frame the output without entering its pickup radius, preserving the pile.
   await page.evaluate(() => window.__EMBERWAKE__.teleport(1480, 790));
   await page.waitForTimeout(700);

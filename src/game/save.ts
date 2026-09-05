@@ -1,6 +1,6 @@
-import { createDefaultSave } from './rules';
+import { createDefaultSave, upgradeCost } from './rules';
 import type { SaveData, Settings, UpgradeId } from './types';
-import { UPGRADES } from './config';
+import { ECONOMY, UPGRADES } from './config';
 
 const DB_NAME = 'emberwake-outpost';
 const STORE_NAME = 'saves';
@@ -53,7 +53,7 @@ export function migrateSave(input: unknown): SaveData {
     return defaults;
   }
 
-  if (source.version !== 2 && source.version !== 3 && source.version !== 4) return defaults;
+  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5) return defaults;
   const next = structuredClone(defaults);
   next.updatedAt = finiteNumber(source.updatedAt, Date.now());
   next.trailwardenName = normalizeTrailwardenName(source.trailwardenName);
@@ -62,7 +62,20 @@ export function migrateSave(input: unknown): SaveData {
     next.upgrades[config.id] = Math.max(0, Math.min(config.maxLevel, Math.floor(finiteNumber(source.upgrades?.[config.id], 0))));
   }
   next.unlocks = { ...defaults.unlocks, ...(source.unlocks ?? {}) };
+  for (const config of UPGRADES) {
+    if (next.upgrades[config.id] >= config.maxLevel) continue;
+    const paid = Math.max(0, Math.min(upgradeCost(config.id, next.upgrades[config.id]) - 1,
+      Math.floor(finiteNumber(source.contributions?.[config.id], 0))));
+    if (paid > 0) next.contributions[config.id] = paid;
+  }
+  const projects = { zone2: 30, dock: 45, glacier: ECONOMY.glacierCost, whiteout: ECONOMY.whiteoutCost };
+  for (const kind of Object.keys(projects) as Array<keyof typeof projects>) {
+    if (next.unlocks[kind]) continue;
+    const paid = Math.max(0, Math.min(projects[kind] - 1, Math.floor(finiteNumber(source.contributions?.[kind], 0))));
+    if (paid > 0) next.contributions[kind] = paid;
+  }
   next.station = {
+    cookMeals: Math.max(0, Math.min(4, Math.floor(finiteNumber(source.station?.cookMeals, 0)))),
     rawMeat: Math.max(0, Math.floor(finiteNumber(source.station?.rawMeat, 0))),
     meals: Math.max(0, Math.floor(finiteNumber(source.station?.meals, 0))),
     rawFish: Math.max(0, Math.floor(finiteNumber(source.station?.rawFish, 0))),
@@ -149,7 +162,7 @@ export function importSave(text: string): SaveData {
   const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || !('version' in parsed)) throw new Error('This file is not an Emberwake save.');
   const version = (parsed as { version?: unknown }).version;
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4) throw new Error('This save was created by an unsupported Emberwake version.');
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) throw new Error('This save was created by an unsupported Emberwake version.');
   return migrateSave(parsed);
 }
 

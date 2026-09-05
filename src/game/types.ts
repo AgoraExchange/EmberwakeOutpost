@@ -45,6 +45,7 @@ export interface Unlocks {
 }
 
 export interface StationState {
+  cookMeals: number;
   rawMeat: number;
   meals: number;
   rawFish: number;
@@ -73,6 +74,8 @@ export interface SaveData {
   /** The locally saved call-sign shown during the outpost's first-run welcome. */
   trailwardenName: string;
   cash: number;
+  /** Resource contributions already paid into unfinished floor pads. */
+  contributions: Partial<Record<UpgradeId | 'zone2' | 'dock' | 'glacier' | 'whiteout', number>>;
   upgrades: Record<UpgradeId, number>;
   unlocks: Unlocks;
   station: StationState;

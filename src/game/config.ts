@@ -21,11 +21,10 @@ export const BRAND = {
     outlineSoft: 0x2c5468,
     snowHighlight: 0xf4fdff,
     ao: 0x0a2331,
-    // Slate-blue packed snow inside the palisade lets amber windows and fire read
-    // as the outpost's warmth instead of turning the whole yard desert-tan.
-    yard: 0x829aa4,
-    yardEdge: 0x526f7c,
-    yardPath: 0xa9b9b5,
+    // Warm packed earth separates the working yard from the surrounding ice.
+    yard: 0xbda17e,
+    yardEdge: 0x85715a,
+    yardPath: 0xd1b998,
     fieldSnow: 0xbcdce8,
     timber: 0x8a5637,
     timberDark: 0x5d3826
@@ -142,6 +141,20 @@ export const WEAPON_ICONS = ['†', '⚒', '⇑', '⚡', '➤'] as const;
 /** The rung at which the weapon starts firing projectiles instead of swinging. */
 export const WEAPON_RANGED_TIER = 4;
 
+/** Existing defense save levels map directly onto the new compound defenses. */
+export const DEFENSE_TIERS = [
+  { name: 'No defenses', kind: 'spear', count: 0, damage: 0, range: 0, cadence: 1 },
+  { name: 'Spear watch', kind: 'spear', count: 2, damage: 15, range: 190, cadence: 1.2 },
+  { name: 'Archer tower', kind: 'archer', count: 1, damage: 25, range: 480, cadence: .9 },
+  { name: 'Twin archer towers', kind: 'archer', count: 2, damage: 29, range: 540, cadence: .8 },
+  { name: 'Auto turrets', kind: 'turret', count: 2, damage: 19, range: 620, cadence: .32 },
+  { name: 'Ember batteries', kind: 'turret', count: 2, damage: 28, range: 720, cadence: .24 }
+] as const;
+
+export function defenseTierFor(level: number) {
+  return DEFENSE_TIERS[Math.max(0, Math.min(DEFENSE_TIERS.length - 1, Math.floor(level)))]!;
+}
+
 export const UPGRADES: UpgradeConfig[] = [
   { id: 'weaponDamage', label: 'Edge', icon: '✦', description: 'Sharper hits', baseCost: 26, costScale: 1.72, maxLevel: 8, effectText: l => `${8 + l * 3} damage` },
   { id: 'attackSpeed', label: 'Tempo', icon: '»', description: 'Faster attacks', baseCost: 42, costScale: 1.76, maxLevel: 6, effectText: l => `${(0.78 * Math.pow(0.9, l)).toFixed(2)}s cadence` },
@@ -153,12 +166,12 @@ export const UPGRADES: UpgradeConfig[] = [
   { id: 'butcherSpeed', label: 'Grill', icon: '♨', description: 'Faster meat meals', baseCost: 44, costScale: 1.8, maxLevel: 7, effectText: l => `${(2.15 * Math.pow(0.84, l)).toFixed(1)}s cook` },
   { id: 'rawStorage', label: 'Cold store', icon: '▣', description: 'More raw storage', baseCost: 47, costScale: 1.66, maxLevel: 6, effectText: l => `${10 + l * 6} storage` },
   { id: 'counterCapacity', label: 'Counter', icon: '▤', description: 'More ready meals', baseCost: 52, costScale: 1.7, maxLevel: 6, effectText: l => `${4 + l * 3} meals` },
-  { id: 'customerFlow', label: 'Beacon', icon: '⌁', description: 'Faster arrivals, up to six guests', baseCost: 58, costScale: 1.76, maxLevel: 6, effectText: l => `${Math.min(6, 4 + l)} guests max` },
+  { id: 'customerFlow', label: 'Beacon', icon: '⌁', description: 'Faster arrivals for an eight-villager queue', baseCost: 58, costScale: 1.76, maxLevel: 6, effectText: l => `8 guests · ${Math.max(.18, .62 - l * .065).toFixed(2)}s arrival stagger` },
   { id: 'saleValue', label: 'Recipes', icon: '◆', description: 'Better meal value', baseCost: 76, costScale: 1.84, maxLevel: 6, effectText: l => `$${4 + l * 2} / meal` },
-  { id: 'worker', label: 'Crew', icon: '♟', description: 'Add butcher worker', baseCost: 108, costScale: 2.25, maxLevel: 2, effectText: l => `${1 + l} workers` },
-  { id: 'defense', label: 'Guard', icon: '⌾', description: 'Gate guard & durability', baseCost: 96, costScale: 1.92, maxLevel: 5, effectText: l => l ? `Guard ${l} · ${220 + l * 70} gate` : 'No guard' },
+  { id: 'worker', label: 'Cook', icon: '♟', description: 'Hire a cook to carry meals to villagers; upgrade for faster four-meal deliveries', baseCost: 108, costScale: 2.25, maxLevel: 2, effectText: l => l === 0 ? 'Manual meal delivery' : l === 1 ? 'Cook delivers 2 meals per trip' : 'Fast cook delivers 4 meals per trip' },
+  { id: 'defense', label: 'Defense', icon: '⌾', description: 'Spear guards → archer towers → automatic turrets', baseCost: 96, costScale: 1.92, maxLevel: 5, effectText: l => `${defenseTierFor(l).name} · ${220 + l * 70} gate HP`, iconForLevel: l => l < 1 ? '⚔' : l < 3 ? '➶' : '⌾' },
   { id: 'furnace', label: 'Furnace', icon: '♨', description: 'Expand warm safety', baseCost: 102, costScale: 1.88, maxLevel: 5, effectText: l => `${265 + l * 40} warm radius` },
-  { id: 'infirmary', label: 'Infirmary', icon: '+', description: 'Faster respawn', baseCost: 84, costScale: 1.85, maxLevel: 4, effectText: l => `${Math.max(0.85, 2 - l * 0.28).toFixed(1)}s recovery` }
+  { id: 'infirmary', label: 'Infirmary', icon: '+', description: 'Faster healing and respawn', baseCost: 84, costScale: 1.85, maxLevel: 4, effectText: l => `${4 + l * 2} HP/s · ${Math.max(0.85, 2 - l * 0.28).toFixed(1)}s respawn` }
 ];
 
 export const UPGRADE_BY_ID = Object.fromEntries(UPGRADES.map(item => [item.id, item])) as Record<UpgradeId, UpgradeConfig>;
@@ -189,11 +202,9 @@ export const UPGRADE_GATES: Partial<Record<UpgradeId, UpgradeGate>> = {
   saleValue: { hint: 'Sell 12 meals', met: save => save.stats.mealsSold >= 12 },
   maxHealth: { hint: 'Defeat 8 frostwild', met: save => save.stats.bearsDefeated >= 8 },
   customerFlow: { hint: 'Sell 18 meals', met: save => save.stats.mealsSold >= 18 },
-  infirmary: { hint: 'Fall in the frostwild', met: save => save.stats.deaths >= 1 },
-  worker: { hint: 'Sell 25 meals', met: save => save.stats.mealsSold >= 25 },
+  infirmary: { hint: 'Buy 2 upgrades', met: save => totalUpgrades(save) >= 2 || save.stats.deaths >= 1 },
   // The Armory has its own permanent plate in the gate yard and is open from the start.
   furnace: { hint: 'Open the Eastern Frontier', met: save => save.unlocks.zone2 },
-  defense: { hint: 'Survive a frostwild surge', met: save => save.unlocks.raidSeen }
 };
 
 export function isUpgradeAvailable(id: UpgradeId, save: SaveData): boolean {
@@ -212,12 +223,13 @@ export const TIMBER = {
   /** Seconds before a felled tree grows back. */
   regrowSeconds: 14,
   /** Cash per log at the timber post. */
-  logValue: 4,
+  logValue: 8,
   /** Seconds between each log sold, so the sale visibly streams. */
   sellCadence: 0.09
 } as const;
 
 export const ECONOMY = {
+  bearCashDrop: 6,
   zone2Cost: 140,
   dockCost: 285,
   glacierCost: 650,

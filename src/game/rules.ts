@@ -24,6 +24,7 @@ export function upgradeCost(id: UpgradeId, currentLevel: number): number {
 
 export function capacityFor(level: number): number { return 4 + level * 3; }
 export function maxHealthFor(level: number): number { return 100 + level * 22; }
+export function healingPerSecondFor(infirmaryLevel: number): number { return 4 + Math.max(0, infirmaryLevel) * 2; }
 export function moveSpeedFor(level: number): number { return Math.min(280, 210 + level * 14); }
 export function weaponDamageFor(level: number, tier: number): number { return 8 + level * 3 + tier * 5; }
 export function attackCadenceFor(level: number, weaponTier = 0): number {
@@ -31,10 +32,10 @@ export function attackCadenceFor(level: number, weaponTier = 0): number {
 }
 export function attackRangeFor(tier: number): number { return [92, 122, 158, 215, 320][tier] ?? 320; }
 export function magnetRadiusFor(level: number): number { return 95 + level * 22; }
-export function butcherSecondsFor(level: number, workers: number): number { return Math.max(0.55, 2.15 * Math.pow(0.84, level) / (1 + workers * 0.55)); }
+export function butcherSecondsFor(level: number, workers: number): number { return Math.max(0.25, 2.15 * Math.pow(0.84, level) / (1 + workers * 0.55)); }
 export function storageCapacityFor(level: number): number { return 10 + level * 6; }
 export function counterCapacityFor(level: number): number { return 4 + level * 3; }
-export function queueCapacityFor(level: number): number { return Math.min(6, 4 + level); }
+export function queueCapacityFor(_level: number): number { return 8; }
 export function customerIntervalFor(level: number): number { return Math.max(1.6, 3.8 * Math.pow(0.88, level)); }
 export function mealValueFor(level: number): number { return ECONOMY.baseMealValue + level * 2; }
 export function gateHealthFor(level: number): number { return 220 + level * 70; }
@@ -104,13 +105,14 @@ export function createUpgradeLevels(): Record<UpgradeId, number> {
 
 export function createDefaultSave(): SaveData {
   return {
-    version: 4,
+    version: 5,
     updatedAt: Date.now(),
     trailwardenName: '',
     cash: 0,
+    contributions: {},
     upgrades: createUpgradeLevels(),
     unlocks: { zone2: false, dock: false, glacier: false, whiteout: false, raidSeen: false },
-    station: { rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0 },
+    station: { cookMeals: 0, rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0 },
     tutorial: 'move',
     stats: { bearsDefeated: 0, totalCashEarned: 0, mealsSold: 0, fishCaught: 0, deaths: 0, raidsWon: 0, playSeconds: 0, woodChopped: 0, woodSold: 0 },
     settings: { ...DEFAULT_SETTINGS }

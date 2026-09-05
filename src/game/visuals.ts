@@ -340,9 +340,17 @@ export function drawCrateStack(g: Graphics, count: number, tone = BRAND.colors.t
     g.moveTo(w.x, w.y).lineTo(s.x, s.y).lineTo(e.x, e.y).stroke({ color: outline, width: 2.5 });
     g.moveTo(s.x, s.y).lineTo(s.x, s.y - h).stroke({ color: outline, width: 2 });
     g.moveTo(n.x, n.y - h).lineTo(e.x, e.y - h).lineTo(s.x, s.y - h).lineTo(w.x, w.y - h).closePath().stroke({ color: outline, width: 2.5 });
+    for (const inset of [7, 15]) {
+      g.moveTo(w.x + 2, w.y - inset).lineTo(s.x, s.y - inset).lineTo(e.x - 2, e.y - inset)
+        .stroke({ color: shade(tone, -.35), width: 1.5 });
+    }
+    g.moveTo(w.x + 4, w.y - 3).lineTo(s.x - 4, s.y - h + 3)
+      .moveTo(s.x + 4, s.y - 3).lineTo(e.x - 4, e.y - h + 3)
+      .stroke({ color: shade(tone, .35), width: 4 });
+    g.moveTo(w.x + 3, w.y - h + 3).lineTo(s.x - 3, s.y - h + 3)
+      .stroke({ color: 0xddbe90, width: 2, alpha: .8 });
   }
 }
-
 /** A snow-topped barrel. */
 export function drawBarrel(g: Graphics): void {
   const outline = BRAND.colors.outline;
@@ -388,16 +396,16 @@ export function paintResourceBadge(g: Graphics, progress: number, resource: 'woo
 export type PadState = 'locked' | 'affordable' | 'maxed';
 
 /**
- * Paints an upgrade/unlock plate as a raised purchase pad: a slab with visible edge
- * thickness, a bright category-colored top, and a chevron pointing into it.
+ * Paints a low ground stencil with a quiet resource-colored fill and bright corner
+ * brackets. Upright wayfinding belongs only at the three working stations.
  */
 export function paintUpgradePlate(g: Graphics, halfWidth: number, halfDepth: number, state: PadState, categoryColor: number): void {
   g.clear();
-  const top = state === 'maxed' ? 0x6d8794 : state === 'affordable' ? shade(categoryColor, 0.12) : shade(categoryColor, -0.36);
+  const top = state === 'maxed' ? 0x78887c : state === 'affordable' ? 0x52775b : 0x786655;
   const side = shade(top, -0.34);
-  const rim = state === 'maxed' ? 0xb2cdd4 : state === 'affordable' ? shade(categoryColor, 0.62) : shade(categoryColor, -0.1);
+  const rim = state === 'affordable' ? 0xaff5b4 : 0xfff1d5;
   const outline = BRAND.colors.outline;
-  const thickness = 11;
+  const thickness = 2;
   const [east, south, west] = footprint(halfWidth, halfDepth) as [Vec2, Vec2, Vec2, Vec2];
 
   // side walls give the pad physical presence on the ground
@@ -408,28 +416,15 @@ export function paintUpgradePlate(g: Graphics, halfWidth: number, halfDepth: num
   traceFootprint(g, halfWidth, halfDepth);
   g.fill({ color: top, alpha: state === 'locked' ? 0.85 : 1 });
   traceFootprint(g, halfWidth, halfDepth);
-  g.stroke({ color: outline, width: 3 });
-  traceFootprint(g, halfWidth * 0.72, halfDepth * 0.72);
-  g.stroke({ color: rim, width: 2.5, alpha: 0.7 });
-}
-
-/** An upright shop sign for a purchase plate: icon above, name, then price pill. */
-export function paintPadChrome(g: Graphics, state: PadState, categoryColor: number, contentWidth: number, iconY: number, priceY: number): void {
-  g.clear();
-  const halfWidth = Math.max(47, contentWidth / 2 + 15);
-  const top = iconY - 31;
-  const bottom = priceY + 17;
-  const boardColor = state === 'maxed' ? 0x38505a : state === 'affordable' ? 0x355968 : 0x294653;
-  // A real post and shadow tie the price information to the world instead of
-  // allowing letters to float through nearby buildings or carried items.
-  g.ellipse(0, 7, 19, 7).fill({ color: BRAND.colors.ao, alpha: .22 });
-  g.roundRect(-5, bottom - 2, 10, Math.max(8, 8 - bottom), 3).fill(0x5b3929).stroke({ color: BRAND.colors.outline, width: 2 });
-  g.roundRect(-halfWidth, top, halfWidth * 2, bottom - top, 9).fill(boardColor).stroke({ color: BRAND.colors.outline, width: 3.5 });
-  g.roundRect(-halfWidth + 5, top + 5, halfWidth * 2 - 10, 7, 3).fill({ color: categoryColor, alpha: state === 'locked' ? .55 : 1 });
-  g.circle(-halfWidth + 11, top + 19, 2.7).fill(0xd8b478);
-  g.circle(halfWidth - 11, top + 19, 2.7).fill(0xd8b478);
-  const halfWidthPill = Math.max(22, contentWidth / 2 + 9);
-  g.roundRect(-halfWidthPill, priceY - 11, halfWidthPill * 2, 22, 11).fill({ color: 0x0d2c3d, alpha: 0.9 });
-  g.roundRect(-halfWidthPill, priceY - 11, halfWidthPill * 2, 22, 11)
-    .stroke({ color: state === 'affordable' ? BRAND.colors.gold : 0x50707f, width: 2.5 });
+  g.stroke({ color: categoryColor, width: 2, alpha: .45 });
+  const corners = footprint(halfWidth * .94, halfDepth * .94);
+  for (let i = 0; i < 4; i += 1) {
+    const corner = corners[i]!;
+    const previous = corners[(i + 3) % 4]!;
+    const next = corners[(i + 1) % 4]!;
+    g.moveTo(corner.x + (previous.x - corner.x) * .2, corner.y + (previous.y - corner.y) * .2)
+      .lineTo(corner.x, corner.y)
+      .lineTo(corner.x + (next.x - corner.x) * .2, corner.y + (next.y - corner.y) * .2)
+      .stroke({ color: rim, width: 4, cap: 'round', join: 'round' });
+  }
 }
