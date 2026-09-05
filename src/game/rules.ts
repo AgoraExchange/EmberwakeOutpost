@@ -130,14 +130,14 @@ export function createUpgradeLevels(): Record<UpgradeId, number> {
 
 export function createDefaultSave(): SaveData {
   return {
-    version: 6,
+    version: 7,
     updatedAt: Date.now(),
     trailwardenName: '',
     cash: 0,
     contributions: {},
     upgrades: createUpgradeLevels(),
     unlocks: { zone2: false, dock: false, glacier: false, whiteout: false, raidSeen: false },
-    station: { cookMeals: 0, rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0, fisherProgress: 0, oreProgress: 0 },
+    station: { cookMeals: 0, rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0, fisherProgress: 0, oreProgress: 0, lumber: 0, lumberProgress: 0, passiveCash: 0 },
     tutorial: 'move',
     stats: { bearsDefeated: 0, totalCashEarned: 0, mealsSold: 0, fishCaught: 0, deaths: 0, raidsWon: 0, raidsFaced: 0, playSeconds: 0, woodChopped: 0, woodSold: 0 },
     settings: { ...DEFAULT_SETTINGS }

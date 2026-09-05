@@ -30,6 +30,7 @@ export type UpgradeId =
   | 'fisher'
   | 'oreRig'
   | 'robots'
+  | 'lumberjack'
   | 'furnace'
   | 'infirmary';
 
@@ -61,6 +62,9 @@ export interface StationState {
   fishProgress: number;
   fisherProgress: number;
   oreProgress: number;
+  lumber: number;
+  lumberProgress: number;
+  passiveCash: number;
 }
 
 export interface Stats {

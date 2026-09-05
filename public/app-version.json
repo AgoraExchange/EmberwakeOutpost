@@ -1,9 +1,9 @@
 {
-  "version": "1.3.0",
+  "version": "1.4.0",
   "releasedAt": "2026-09-05",
   "notes": [
-    "Build reinforced walls, shoreline and eastern annexes, stronger gates, and roaming wardens.",
-    "Raids are persistent numbered waves that grow in pack size, health, damage, speed, and reward.",
-    "Shoreline crews automate fishing, Glacier Reach gains a salvage business, and Whiteout builds utility robots."
+    "Hired meal runners now turn stocked Cookout meals into saved cash while the player is away.",
+    "Upgradeable lumberjacks fill three visible 100-log piles, online or offline, capped at 300 logs.",
+    "Close-safe timestamp saves and newest-snapshot recovery preserve passive earnings for up to eight hours."
   ]
 }

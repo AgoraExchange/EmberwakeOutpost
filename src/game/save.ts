@@ -53,7 +53,7 @@ export function migrateSave(input: unknown): SaveData {
     return defaults;
   }
 
-  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6) return defaults;
+  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6 && source.version !== 7) return defaults;
   const next = structuredClone(defaults);
   next.updatedAt = finiteNumber(source.updatedAt, Date.now());
   next.trailwardenName = normalizeTrailwardenName(source.trailwardenName);
@@ -83,7 +83,10 @@ export function migrateSave(input: unknown): SaveData {
     butcherProgress: Math.max(0, finiteNumber(source.station?.butcherProgress, 0)),
     fishProgress: Math.max(0, finiteNumber(source.station?.fishProgress, 0)),
     fisherProgress: Math.max(0, finiteNumber(source.station?.fisherProgress, 0)),
-    oreProgress: Math.max(0, finiteNumber(source.station?.oreProgress, 0))
+    oreProgress: Math.max(0, finiteNumber(source.station?.oreProgress, 0)),
+    lumber: Math.max(0, Math.min(300, Math.floor(finiteNumber(source.station?.lumber, 0)))),
+    lumberProgress: Math.max(0, finiteNumber(source.station?.lumberProgress, 0)),
+    passiveCash: Math.max(0, Math.floor(finiteNumber(source.station?.passiveCash, 0)))
   };
   next.tutorial = source.tutorial ?? defaults.tutorial;
   next.stats = {
@@ -140,21 +143,26 @@ async function idbWrite(data: SaveData): Promise<void> {
 }
 
 export async function loadSave(): Promise<SaveData> {
-  let raw: unknown;
-  try { raw = await idbRead(); } catch { /* fallback below */ }
-  if (!raw) {
-    try {
-      const text = localStorage.getItem(FALLBACK_KEY);
-      if (text) raw = JSON.parse(text);
-    } catch { /* private browsing can block storage */ }
-  }
-  return migrateSave(raw);
+  let databaseRaw: unknown;
+  let fallbackRaw: unknown;
+  try { databaseRaw = await idbRead(); } catch { /* fallback below */ }
+  try {
+    const saved = localStorage.getItem(FALLBACK_KEY);
+    if (saved) fallbackRaw = JSON.parse(saved);
+  } catch { /* private browsing can block storage */ }
+  const timestamp = (value: unknown): number => value && typeof value === 'object'
+    ? finiteNumber((value as { updatedAt?: unknown }).updatedAt, 0) : 0;
+  // A tab may close after the synchronous fallback but before IndexedDB commits.
+  // Always resume the newest complete snapshot from either device store.
+  return migrateSave(timestamp(fallbackRaw) > timestamp(databaseRaw) ? fallbackRaw : databaseRaw ?? fallbackRaw);
 }
 
 export async function saveProgress(data: SaveData): Promise<void> {
   const snapshot = migrateSave({ ...data, updatedAt: Date.now() });
-  try { await idbWrite(snapshot); } catch { /* fallback below */ }
+  // Write the synchronous fallback first so pagehide/close cannot interrupt before
+  // the current timestamp and production stock reach durable device storage.
   try { localStorage.setItem(FALLBACK_KEY, JSON.stringify(snapshot)); } catch { /* storage may be unavailable */ }
+  try { await idbWrite(snapshot); } catch { /* synchronous fallback already written */ }
 }
 
 export function exportSave(data: SaveData): string {
@@ -165,7 +173,7 @@ export function importSave(text: string): SaveData {
   const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || !('version' in parsed)) throw new Error('This file is not an Emberwake save.');
   const version = (parsed as { version?: unknown }).version;
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6) throw new Error('This save was created by an unsupported Emberwake version.');
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7) throw new Error('This save was created by an unsupported Emberwake version.');
   return migrateSave(parsed);
 }
 

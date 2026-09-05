@@ -4,6 +4,14 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.4.0 — Offline crews and collectible earnings
+
+- Closing, backgrounding, or hiding the app immediately writes a timestamped device save. Launch selects the newest valid snapshot from IndexedDB or the synchronous fallback, so a fast mobile close does not discard the last work state.
+- Stocked Cookout production continues for up to eight hours. A hired meal runner finishes deliveries while away and leaves the exact proceeds at the strongbox for the player to collect after returning.
+- A new Lumberjacks pad hires up to three visible workers. They travel between the forest and lumber yard while playing and continue working offline.
+- The lumber yard has three physical piles that fill sequentially to 100 logs each, cap at 300 total, persist across relaunches, and load onto the Trailwarden for sale at the Timber Post.
+- The return report and Outpost overview show cooked meals, collectible passive cash, and newly stacked logs. Offline time never runs raids or invents kitchen ingredients.
+
 ## 1.3.0 — Fortify and industrialize the frontier
 
 - The Compound pad develops the original camp into a reinforced core, a working shoreline annex, and an eastern stronghold with additional exits. Gate Armor is its own five-level investment and stacks with defense and compound tiers for much higher gate health.
@@ -27,8 +35,8 @@ The game has no backend, accounts, tracking, ads, remote APIs, or paid services.
 - Each slain bear drops raw meat and collectible $6 cash, including kills made by compound defenders. Raid meat remains for five minutes; the successful defense bonus is paid separately in collectible cash.
 - Raw food, cooked meals, and timber share the same backpack-height base, including when all three stacks are carried.
 - The green furnace circle heals living players at 4 HP per second, capped at maximum health. Each Infirmary level adds 2 HP per second and still shortens respawn time. Leaving the circle or pausing stops healing.
-- Unfinished cash and timber contributions persist across relaunches. Save schema v6 migrates earlier saves, retaining their names, upgrades, stock, settings, and currency.
-- Stocked grills and unlocked smokehouses finish cooking while the app is closed or hidden, using at most eight hours of elapsed time. Existing ingredients and output capacity limit production; there are no automatic sales or offline raids. The title screen reports completed meals on return.
+- Unfinished cash and timber contributions persist across relaunches. Save schema v7 migrates earlier saves, retaining their names, upgrades, stock, settings, and currency.
+- Stocked grills and unlocked smokehouses finish cooking while the app is closed or hidden, using at most eight hours of elapsed time. Existing ingredients limit production, and purchased workers can finish deliveries into saved collectible proceeds. Offline time never runs raids.
 - After onboarding, the objective card points to the next expansion or crew milestone.
 
 ## Run locally
@@ -80,7 +88,7 @@ The vertical slice includes:
 
 - deterministic fixed-step movement, targeting, combat cadence, knockback, hit-stop, damage feedback, enemy finite-state behavior, death, protected respawn, and permanent loss of all carried cargo on defeat;
 - visible raw/cooked/timber backpack stacks, magnetic drops, provision storage, animated grill conversion, physical output piles, inventory-matched queues of eight villagers, hired meal delivery, physical cash, and real upgrade effects;
-- 23 upgrade lines covering combat, survival, carrying, production, customers, staffing, compound construction, gate armor, defenses, remote industry, heat, and recovery;
+- 24 upgrade lines covering combat, survival, carrying, production, customers, staffing, compound construction, gate armor, defenses, remote industry, heat, and recovery;
 - an eight-times-larger 9,600×6,200 ice world with Rime Trail, Icehorn Ridge, Glacier Reach, Whiteout Expanse, sequential passes, new forests, obstacles, and tougher enemies;
 - a repeatable telegraphed gate raid whose pack assembles off-camera, follows a staged route to the compound gate, and can be opposed by the guard; if the gate buckles, raiders enter the compound and destroy banked profit at the Cookout until the pack is eliminated;
 - a paid shoreline unlock, hold-to-catch frostfin dock, separate smokehouse conversion and pickup pile, fish-requesting guests, and higher-value fish plates;
@@ -111,7 +119,7 @@ Change values in the config tables, then run `npm test` and the browser acceptan
 
 The current schema is version 5. Progress saves after purchases, deposits/major state changes, deaths, settings updates, imports/resets, document hiding, and every eight active seconds. IndexedDB is primary and `localStorage` is a fallback for constrained/private environments.
 
-Saved state includes the Trailwarden call-sign, banked cash, upgrade levels, unfinished pad contributions, all expedition gates, numbered raid history, station inventory/progress, tutorial completion, stats, and settings. Carried at-risk cargo and physical world drops are deliberately session state. Import validates and migrates the file before replacing progress; reset requires two confirmations. Migration hooks for v1–v6 and unknown/corrupt data are covered by unit tests.
+Saved state includes the Trailwarden call-sign, banked cash, passive cash, lumber-yard stock, upgrade levels, unfinished pad contributions, all expedition gates, numbered raid history, station inventory/progress, tutorial completion, stats, and settings. Carried at-risk cargo and physical world drops are deliberately session state. Import validates and migrates the file before replacing progress; reset requires two confirmations. Migration hooks for v1–v7 and unknown/corrupt data are covered by unit tests.
 
 ## PWA and iPhone installation
 

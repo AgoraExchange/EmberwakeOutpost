@@ -63,7 +63,8 @@ export const UPGRADE_CATEGORY: Record<UpgradeId, UpgradeCategory> = {
   fishery: 'production',
   fisher: 'production',
   oreRig: 'production',
-  robots: 'production'
+  robots: 'production',
+  lumberjack: 'production'
 };
 
 export const WORLD = {
@@ -184,6 +185,7 @@ export const UPGRADES: UpgradeConfig[] = [
   { id: 'fisher', label: 'Fisher Crew', icon: '⚓', description: 'Hire fishers who keep the smokehouse supplied', baseCost: 260, costScale: 2.05, maxLevel: 3, effectText: l => l === 0 ? 'Manual fishing' : `${l} fishers · auto-catch every ${Math.max(2.4, 7.2 - l * 1.3).toFixed(1)}s` },
   { id: 'oreRig', label: 'Salvage Rig', icon: '⛏', description: 'Extract valuable Ember ore in Glacier Reach', baseCost: 700, costScale: 2.1, maxLevel: 5, effectText: l => l === 0 ? 'No extraction' : `$${12 + l * 8} ore crates · powered rig ${l}` },
   { id: 'robots', label: 'Robot Foundry', icon: '⚙', description: 'Build utility robots that accelerate remote industry', baseCost: 1800, costScale: 2.2, maxLevel: 3, effectText: l => l === 0 ? 'No robots' : `${l * 2} utility robots · faster salvage` },
+  { id: 'lumberjack', label: 'Lumberjacks', icon: '♣', description: 'Hire logging crews who fill three 100-log yard piles', baseCost: 320, costScale: 2.05, maxLevel: 3, effectText: l => l === 0 ? 'Manual logging' : `${l} lumberjacks · ${[0, 10, 7, 5][l]}s per log · 300 storage` },
   { id: 'furnace', label: 'Furnace', icon: '♨', description: 'Expand warm safety', baseCost: 102, costScale: 1.88, maxLevel: 5, effectText: l => `${265 + l * 40} warm radius` },
   { id: 'infirmary', label: 'Infirmary', icon: '+', description: 'Faster healing and respawn', baseCost: 84, costScale: 1.85, maxLevel: 4, effectText: l => `${4 + l * 2} HP/s · ${Math.max(0.85, 2 - l * 0.28).toFixed(1)}s respawn` }
 ];
@@ -226,6 +228,7 @@ export const UPGRADE_GATES: Partial<Record<UpgradeId, UpgradeGate>> = {
   fisher: { hint: 'Thaw the shoreline', met: save => save.unlocks.dock },
   oreRig: { hint: 'Open Glacier Reach', met: save => save.unlocks.glacier },
   robots: { hint: 'Open Whiteout Expanse', met: save => save.unlocks.whiteout },
+  lumberjack: { hint: 'Open the Eastern Frontier', met: save => save.unlocks.zone2 },
 };
 
 export function isUpgradeAvailable(id: UpgradeId, save: SaveData): boolean {

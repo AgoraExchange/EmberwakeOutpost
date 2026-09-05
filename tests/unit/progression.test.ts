@@ -9,11 +9,11 @@ describe('stocked stations while away', () => {
     save.station.rawMeat = 30;
     save.station.meals = 1;
     save.cash = 42;
-    expect(finishOfflineCooking(save, 61_000)).toEqual({ meals: 3, fishMeals: 0 });
+    expect(finishOfflineCooking(save, 61_000)).toMatchObject({ meals: 3, fishMeals: 0, mealsSold: 0, cashEarned: 0, lumber: 0 });
     expect(save.station.rawMeat).toBe(27);
     expect(save.station.meals).toBe(4);
     expect(save.cash).toBe(42);
-    expect(finishOfflineCooking(save, 61_000)).toEqual({ meals: 0, fishMeals: 0 });
+    expect(finishOfflineCooking(save, 61_000)).toMatchObject({ meals: 0, fishMeals: 0 });
   });
 
   it('retains fractional cooking progress and never invents ingredients', () => {
@@ -48,5 +48,29 @@ describe('stocked stations while away', () => {
     expect(finishOfflineCooking(save, 100_000).meals).toBe(0);
     expect(finishOfflineCooking(save, 99_000).meals).toBe(0);
     expect(save.station.rawMeat).toBe(10);
+  });
+
+  it('turns stocked meals into saved collectible cash for a hired runner', () => {
+    const save = createDefaultSave();
+    save.updatedAt = 0;
+    save.upgrades.worker = 1;
+    save.upgrades.saleValue = 2;
+    save.station.rawMeat = 20;
+    const report = finishOfflineCooking(save, 70_000);
+    expect(report.mealsSold).toBeGreaterThan(0);
+    expect(report.cashEarned).toBe(report.mealsSold * 8);
+    expect(save.station.passiveCash).toBe(report.cashEarned);
+    expect(save.cash).toBe(0);
+  });
+
+  it('fills three lumber piles while away and caps saved stock at 300', () => {
+    const save = createDefaultSave();
+    save.updatedAt = 0;
+    save.upgrades.lumberjack = 3;
+    expect(finishOfflineCooking(save, 1_000_000).lumber).toBe(200);
+    expect(save.station.lumber).toBe(200);
+    save.updatedAt = 0;
+    expect(finishOfflineCooking(save, 10_000_000).lumber).toBe(100);
+    expect(save.station.lumber).toBe(300);
   });
 });

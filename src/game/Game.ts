@@ -191,6 +191,7 @@ interface StationVisuals {
   fishProgress: Graphics; fishStock: Text; fishOutput: Container; fishPile: Graphics; fishOutputStock: Text; dockProgress: Graphics;
   fishBuilding: Container; fishDropZone: Container; zoneGate: Container; glacierGate: Container; whiteoutGate: Container;
   southGate: Container; compoundGate: GateVisual; gateBar: Graphics;
+  lumberZone: Container; lumberPile: Graphics; lumberStock: Text;
   workerVisuals: Container[]; serveHint: Text;
 }
 
@@ -228,6 +229,7 @@ const PAD_SLOTS: PadSlot[] = [
   { x: 850, y: 2020, fixed: 'fisher' },
   { x: 4850, y: 2320, fixed: 'oreRig' },
   { x: 7060, y: 3970, fixed: 'robots' },
+  { x: 1640, y: 1260, fixed: 'lumberjack' },
   { x: 1080, y: 850, fixed: 'worker' },
   { x: 1250, y: 850, fixed: 'butcherSpeed' },
   // The rest form an upgrade row along the south of the hearth district.
@@ -294,12 +296,15 @@ export class Game {
   private readonly unlockPads: UnlockPad[] = [];
   private readonly trees: TreeEntity[] = [];
   private readonly fisherVisuals: Container[] = [];
+  private readonly lumberjackVisuals: Container[] = [];
   private readonly robotVisuals: Container[] = [];
   private oreRigBuilding!: Container;
   private robotFoundry!: Container;
   private oreCashZone!: Container;
   private chopCooldown = 0;
   private sellTimer = 0;
+  private lumberPickupTimer = 0;
+  private lumberPileKey = -1;
   private deliverTimer = 0;
   /** Bumped whenever a tree is felled or regrows, so the blocker cache rebuilds. */
   private treeVersion = 0;
@@ -431,6 +436,7 @@ export class Game {
     this.app.ticker.maxFPS = this.save.settings.quality === 'low' ? 30 : 60;
     this.app.ticker.add(this.onFrame, this);
     window.addEventListener('resize', this.onResize);
+    window.addEventListener('pagehide', this.onPageHide);
     document.addEventListener('visibilitychange', this.onVisibility);
     this.onResize();
     this.refreshPadVisuals();
@@ -531,15 +537,27 @@ export class Game {
     else if (wasHidden) {
       this.skipNextFrame = true;
       if (!this.paused) this.app.start();
-      const cooked = finishOfflineCooking(this.save);
-      this.customerBearDemand += cooked.meals;
-      this.customerFishDemand += cooked.fishMeals;
-      if (cooked.meals + cooked.fishMeals > 0) {
-        this.callbacks.toast(`Welcome back · ${cooked.meals + cooked.fishMeals} meals cooked while away`);
+      const away = finishOfflineCooking(this.save);
+      this.customerBearDemand = Math.max(0, this.customerBearDemand + away.demandDelta);
+      this.customerFishDemand += away.fishMeals;
+      let completedOrders = away.mealsSold;
+      for (let index = this.customers.length - 1; index >= 0 && completedOrders > 0; index -= 1) {
+        const customer = this.customers[index]!;
+        if (customer.wantsFish) continue;
+        customer.container.destroy({ children: true });
+        this.customers.splice(index, 1);
+        completedOrders -= 1;
+      }
+      if (away.meals + away.fishMeals + away.mealsSold + away.lumber > 0) {
+        const results = [away.meals + away.fishMeals > 0 ? `${away.meals + away.fishMeals} cooked` : '',
+          away.cashEarned > 0 ? `$${away.cashEarned} waiting` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : ''].filter(Boolean).join(' · ');
+        this.callbacks.toast(`Welcome back · ${results}`);
       }
       this.requestSave();
     }
   };
+
+  private readonly onPageHide = (): void => { this.requestSave(); };
 
   private readonly onResize = (): void => {
     const width = this.app.screen.width;
@@ -805,7 +823,19 @@ export class Game {
     // ground text to compete with buildings, workers, cargo, or the queue.
     const mealOutputStock = this.makeWayfindingSign(1260, 350, 'COOKOUT', 'DROP RAW  →  TAKE MEALS', BRAND.colors.ember);
     const serveHint = this.makeWayfindingSign(470, 835, 'MESS HALL', 'SERVE COOKED  →  GET CASH', 0x6fd39b);
-    this.makeWayfindingSign(1580, 1145, 'TIMBER POST', `SELL LOGS  ·  $${TIMBER.logValue} EACH`, BRAND.colors.timber);
+    this.makeWayfindingSign(1700, 1020, 'TIMBER POST', `SELL LOGS  ·  $${TIMBER.logValue} EACH`, BRAND.colors.timber);
+
+    const lumberZone = this.makeInteractionZone(1500, 1120, 66, BRAND.colors.timber, 'LUMBER YARD');
+    const lumberPile = new Graphics();
+    lumberPile.position.set(0, -18);
+    const lumberStock = worldText('LOGS 0 / 300', 14, 0xffedc5, '900');
+    lumberStock.position.set(0, -70);
+    lumberZone.addChild(lumberPile, lumberStock);
+    for (let index = 0; index < 3; index += 1) {
+      const worker = this.createCampWorker(1810 + index * 55, 1010 + index * 65, 0x8b633f);
+      worker.label = 'lumberjack-crew';
+      this.lumberjackVisuals.push(worker);
+    }
 
     const fishStationBuilt = isoBuilding({ halfWidth: 80, halfDepth: 50, height: 90, wallColor: 0x406d78, roofColor: 0x54c8c5, art: 'building/smokehouse' });
     const fishStation = fishStationBuilt.container;
@@ -849,7 +879,7 @@ export class Game {
     this.refreshDefenses();
     this.createInfirmary();
 
-    return { furnaceGlow, furnaceFlame, warmRing, butcherProgress, butcherStock, mealOutput, mealPile, mealOutputStock, cashStock, fishProgress, fishStock, fishOutput, fishPile, fishOutputStock, dockProgress, fishBuilding: fishStation, fishDropZone, zoneGate, glacierGate, whiteoutGate, southGate, compoundGate, gateBar, workerVisuals, serveHint };
+    return { furnaceGlow, furnaceFlame, warmRing, butcherProgress, butcherStock, mealOutput, mealPile, mealOutputStock, cashStock, fishProgress, fishStock, fishOutput, fishPile, fishOutputStock, dockProgress, fishBuilding: fishStation, fishDropZone, zoneGate, glacierGate, whiteoutGate, southGate, compoundGate, gateBar, lumberZone, lumberPile, lumberStock, workerVisuals, serveHint };
   }
 
   /**
@@ -1616,6 +1646,17 @@ export class Game {
   /** Standing at the timber post sells the carried logs one at a time. */
   private updateTimberPost(dt: number): void {
     this.sellTimer = Math.max(0, this.sellTimer - dt);
+    this.lumberPickupTimer = Math.max(0, this.lumberPickupTimer - dt);
+    if (this.save.station.lumber > 0 && this.lumberPickupTimer <= 0
+      && distanceSquared(this.player.x, this.player.y, 1500, 1120) < 78 ** 2) {
+      const collected = Math.min(5, this.save.station.lumber);
+      this.save.station.lumber -= collected;
+      this.player.wood += collected;
+      this.lumberPickupTimer = .08;
+      this.streamParticle(1500, 1120, this.player.x, this.player.y - 35, BRAND.colors.timber);
+      this.audio.play('pickup', .55);
+      if (this.save.station.lumber === 0) this.requestSave();
+    }
     if (this.player.wood <= 0 || this.sellTimer > 0) return;
     if (distanceSquared(this.player.x, this.player.y, WORLD.timberPost.x, WORLD.timberPost.y) > 70 ** 2) return;
     this.sellTimer = TIMBER.sellCadence;
@@ -2407,6 +2448,28 @@ export class Game {
         this.audio.play('build', .4);
       }
     } else this.save.station.oreProgress = Math.min(this.save.station.oreProgress, .99);
+
+    const lumberjack = this.save.upgrades.lumberjack;
+    if (lumberjack > 0 && this.save.station.lumber < 300) {
+      const interval = [0, 10, 7, 5][lumberjack]!;
+      this.save.station.lumberProgress += dt / interval;
+      if (this.save.station.lumberProgress >= 1) {
+        this.save.station.lumberProgress -= 1;
+        this.save.station.lumber += 1;
+        this.spawnBurst(1500, 1120, BRAND.colors.timber, 3);
+      }
+    } else if (this.save.station.lumber >= 300) this.save.station.lumberProgress = 0;
+    this.lumberjackVisuals.forEach((worker, index) => {
+      const active = index < lumberjack;
+      worker.visible = active;
+      if (!active) return;
+      const phase = (this.simulationTime / ([0, 10, 7, 5][lumberjack]!)) * Math.PI * 2 + index * 1.6;
+      const t = (Math.sin(phase) + 1) / 2;
+      const x = 1500 + (1840 - 1500) * t;
+      const y = 1120 + (960 - 1120) * t + index * 28;
+      worker.scale.x = Math.cos(phase) < 0 ? -1 : 1;
+      this.place(worker, x, y, 35);
+    });
   }
 
   private updateCook(dt: number): void {
@@ -2663,6 +2726,17 @@ export class Game {
 
   private updateCash(_dt: number): void {
     if (!this.player.alive) return;
+    if (this.save.station.passiveCash > 0
+      && distanceSquared(this.player.x, this.player.y, WORLD.cashZone.x, WORLD.cashZone.y) < 62 ** 2) {
+      const value = this.save.station.passiveCash;
+      this.save.station.passiveCash = 0;
+      this.save.cash += value;
+      this.save.stats.totalCashEarned += value;
+      this.spawnGainLabel(WORLD.cashZone.x, WORLD.cashZone.y, `+$${value} PASSIVE`, 0xffe07a, 72);
+      this.spawnBurst(WORLD.cashZone.x, WORLD.cashZone.y, 0x72dd8d, 12);
+      this.audio.play('cash');
+      this.requestSave();
+    }
     for (let index = this.cashDrops.length - 1; index >= 0; index -= 1) {
       const cash = this.cashDrops[index]!;
       if (distanceSquared(this.player.x, this.player.y, cash.x, cash.y) < 55 ** 2) {
@@ -3505,8 +3579,13 @@ export class Game {
     this.station.serveHint.text = this.isPlayerServing()
       ? (frontGuest ? (hasFrontMeal ? 'SERVING' : frontGuest.wantsFish ? 'NEED FISH PLATE' : 'NEED COOKED MEAL') : 'WAITING FOR GUESTS')
       : waitingGuests > 0 ? `${waitingGuests} WAITING  ·  SERVE HERE` : 'SERVE COOKED  →  GET CASH';
-    const waiting = this.cashDrops.reduce((sum, item) => sum + (distanceSquared(item.x, item.y, WORLD.cashZone.x, WORLD.cashZone.y) < 70 ** 2 ? item.value : 0), 0);
+    const waiting = this.save.station.passiveCash + this.cashDrops.reduce((sum, item) => sum + (distanceSquared(item.x, item.y, WORLD.cashZone.x, WORLD.cashZone.y) < 70 ** 2 ? item.value : 0), 0);
     this.station.cashStock.text = waiting > 0 ? `$${waiting}` : '';
+    if (this.lumberPileKey !== this.save.station.lumber) {
+      this.lumberPileKey = this.save.station.lumber;
+      this.station.lumberStock.text = `LOGS ${this.save.station.lumber} / 300`;
+      this.drawLumberYard(this.station.lumberPile, this.save.station.lumber);
+    }
     this.drawProgressRing(this.station.fishProgress, this.save.station.fishProgress, BRAND.colors.fish, 34);
     this.station.fishStock.text = `FISH ${this.save.station.rawFish} · PLATES ${this.save.station.fishMeals}`;
     if (this.fishPileKey !== this.save.station.fishMeals) {
@@ -3565,6 +3644,26 @@ export class Game {
         graphic.ellipse(x, y - 1.5, 7, 2.8).fill(BRAND.colors.fish);
       } else {
         graphic.roundRect(x - 6, y - 4.5, 12, 6, 2.5).fill(index % 2 ? 0xd77b3e : BRAND.colors.ember);
+      }
+    }
+  }
+
+  /** Three separate stacks fill to 100 in order, then remain ready for pickup. */
+  private drawLumberYard(graphic: Graphics, amount: number): void {
+    graphic.clear();
+    for (let pile = 0; pile < 3; pile += 1) {
+      const stored = clamp(amount - pile * 100, 0, 100);
+      const visibleLogs = Math.ceil(stored / 5);
+      const baseX = (pile - 1) * 42;
+      graphic.roundRect(baseX - 20, 2, 40, 8, 2).fill(0x5f432f);
+      for (let index = 0; index < visibleLogs; index += 1) {
+        const row = Math.floor(index / 4);
+        const column = index % 4;
+        const x = baseX + (column - 1.5) * 9;
+        const y = -row * 8 - (column % 2) * 2;
+        graphic.roundRect(x - 13, y - 4, 26, 8, 4).fill(index % 2 ? BRAND.colors.timber : shade(BRAND.colors.timber, .13))
+          .stroke({ color: BRAND.colors.outline, width: 1.4 });
+        graphic.circle(x + 10, y, 3).fill(0xd9ab74);
       }
     }
   }
@@ -3703,6 +3802,7 @@ export class Game {
     this.robotFoundry.visible = this.save.unlocks.whiteout;
     this.robotFoundry.alpha = this.save.upgrades.robots > 0 ? 1 : .46;
     this.robotVisuals.forEach((robot, index) => { robot.visible = this.save.unlocks.whiteout && index < this.save.upgrades.robots * 2; });
+    this.lumberjackVisuals.forEach((worker, index) => { worker.visible = index < this.save.upgrades.lumberjack; });
     for (const child of this.world.children) {
       if (child instanceof Container && child !== this.player.container && child.label === 'dock-visual') child.visible = this.save.unlocks.dock;
     }
@@ -3752,6 +3852,12 @@ export class Game {
       return { title: nearby.title.text, detail: benefit,
         action: nearby.payment === 'wood' ? `Stand on the pad · ${remaining} logs remaining` : `Stand on the pad · $${remaining} remaining`,
         progress: paid / total };
+    }
+    if (this.save.station.lumber > 0 && distanceSquared(this.player.x, this.player.y, 1500, 1120) < 150 ** 2) {
+      return { title: 'Lumber yard', detail: `${this.save.station.lumber}/300 logs stacked across three piles`, action: 'Step onto the pile to load logs · Sell them at the Timber Post', progress: this.save.station.lumber / 300 };
+    }
+    if (this.save.station.passiveCash > 0 && distanceSquared(this.player.x, this.player.y, WORLD.cashZone.x, WORLD.cashZone.y) < 145 ** 2) {
+      return { title: 'Passive takings', detail: `$${this.save.station.passiveCash} earned while you were away`, action: 'Step onto the strongbox to collect', progress: 1 };
     }
     if (this.isPlayerSafe()) return { title: 'Hearth sanctuary', detail: this.player.health < maxHealthFor(this.save.upgrades.maxHealth)
       ? `Recovering ${healingPerSecondFor(this.save.upgrades.infirmary)} HP each second` : 'Fully rested · Ready for the frostwild',

@@ -43,7 +43,7 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.3.0';
+const APP_VERSION = '1.4.0';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 
@@ -193,7 +193,7 @@ function openOutpost(): void {
   game.pause();
   const save = game.getSave();
   const state = game.debugState();
-  const pendingCash = state.cashLoot.reduce((sum, drop) => sum + drop.value, 0);
+  const pendingCash = save.station.passiveCash + state.cashLoot.reduce((sum, drop) => sum + drop.value, 0);
   const price = (id: UpgradeId) =>
     `$${Math.max(0, upgradeCost(id, save.upgrades[id]) - (save.contributions[id] ?? 0)).toLocaleString()}`;
   const upgrade = (id: UpgradeId) =>
@@ -223,7 +223,9 @@ function openOutpost(): void {
     ['Mess Hall', `${state.customerDemand} orders · up to 8 guests in line · $${4 + save.upgrades.saleValue * 2} per bear meal`, upgrade('counterCapacity')],
     ['Compound defense', `${defenseTierFor(save.upgrades.defense).name} · ${state.defense.warriors} roaming wardens · ${Math.ceil(state.gateHealth)} gate HP`, upgrade('defense')],
     ['Fortifications', `${UPGRADE_BY_ID.compound.effectText(save.upgrades.compound)} · ${UPGRADE_BY_ID.gateArmor.effectText(save.upgrades.gateArmor)}`, `${upgrade('compound')} · Gate: ${upgrade('gateArmor')}`],
-    ['Raid readiness', `Next wave ${save.stats.raidsFaced + 1} · ${save.stats.raidsWon} victories`, save.unlocks.raidSeen ? upgrade('warriors') : 'First raid unlocks fortification options']
+    ['Raid readiness', `Next wave ${save.stats.raidsFaced + 1} · ${save.stats.raidsWon} victories`, save.unlocks.raidSeen ? upgrade('warriors') : 'First raid unlocks fortification options'],
+    ['Lumber yard', `${save.station.lumber}/300 logs stacked · three 100-log piles`, save.unlocks.zone2 ? upgrade('lumberjack') : 'Open Eastern Frontier to hire lumberjacks'],
+    ['Passive takings', `$${save.station.passiveCash.toLocaleString()} waiting at the strongbox`, save.upgrades.worker > 0 ? 'Stock the Cookout before leaving' : 'Hire the Cook to earn while away']
   ]);
   fill('#outpost-districts', [
     ['Eastern Frontier', 'More hunting grounds and furnace upgrades.', save.unlocks.zone2 ? 'OPEN' : `${30 - (save.contributions.zone2 ?? 0)} timber remaining`],
@@ -287,10 +289,11 @@ async function bootstrap(): Promise<void> {
   currentSave = await loadSave();
   const away = finishOfflineCooking(currentSave);
   await saveProgress(currentSave);
-  const awayCount = away.meals + away.fishMeals;
-  if (awayCount > 0) {
+  if (away.meals + away.fishMeals + away.mealsSold + away.lumber > 0) {
     const report = requireElement('#away-report');
-    report.textContent = `WELCOME BACK · ${awayCount} meals cooked while you were away`;
+    const results = [away.meals + away.fishMeals > 0 ? `${away.meals + away.fishMeals} meals cooked` : '',
+      away.cashEarned > 0 ? `$${away.cashEarned} ready to collect` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : ''].filter(Boolean);
+    report.textContent = `WELCOME BACK · ${results.join(' · ')}`;
     report.classList.remove('hidden');
   }
   appVersion.textContent = `Emberwake ${APP_VERSION}`;

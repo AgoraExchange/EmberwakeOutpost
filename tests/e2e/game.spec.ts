@@ -18,7 +18,7 @@ declare global {
         customerDemand: number;
         waitingCustomers: number;
         cook: { x: number; y: number; carrying: number; delivering: boolean };
-        station: { rawMeat: number; meals: number; rawFish: number; fishMeals: number };
+        station: { rawMeat: number; meals: number; rawFish: number; fishMeals: number; lumber: number; passiveCash: number };
         upgrades: Record<string, number>;
         unlocks: { zone2: boolean; dock: boolean; glacier: boolean; whiteout: boolean; raidSeen: boolean };
         raidState: string;
@@ -61,6 +61,32 @@ test('slow rendering does not slow the game clock or advance paused time', async
   await page.getByRole('button', { name: 'Resume', exact: true }).click();
   await page.waitForTimeout(600);
   expect((await page.evaluate(() => window.__EMBERWAKE__.getState().simulationTime)) - paused).toBeLessThan(1);
+});
+
+test('offline crews leave collectible cash and three-pile lumber stock', async ({ page, browserName, isMobile }) => {
+  test.skip(isMobile || browserName !== 'chromium', 'exercise offline earnings once');
+  await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
+    version: 7, updatedAt: Date.now() - 1_000_000, trailwardenName: 'Ember Fox', cash: 0,
+    upgrades: { worker: 1, saleValue: 2, lumberjack: 1 },
+    unlocks: { zone2: true, dock: false, glacier: false, whiteout: false, raidSeen: false },
+    station: { rawMeat: 12 }, tutorial: 'complete'
+  })));
+  await page.goto('/');
+  await expect(page.locator('#away-report')).toContainText('ready to collect');
+  await expect(page.locator('#away-report')).toContainText('logs stacked');
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  const produced = await page.evaluate(() => window.__EMBERWAKE__.getState());
+  expect(produced.station.passiveCash).toBeGreaterThan(0);
+  expect(produced.station.lumber).toBeGreaterThan(0);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(420, 420));
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().station.passiveCash)).toBe(0);
+  const afterCash = await page.evaluate(() => window.__EMBERWAKE__.getState().cash);
+  expect(afterCash).toBeGreaterThan(0);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(1420, 1220));
+  await page.waitForTimeout(1_200);
+  await page.screenshot({ path: 'test-results/offline-lumber-yard.png' });
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(1500, 1120));
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.wood)).toBeGreaterThan(0);
 });
 
 test('eight guests queue and the hired cook delivers meals without banking cash', async ({ page, browserName, isMobile }) => {
