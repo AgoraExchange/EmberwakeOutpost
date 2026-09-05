@@ -843,39 +843,32 @@ export class Game {
     mealOutput.addChild(mealOutputStock);
     const serveHint = this.makeWayfindingSign(470, 835, 'MESS HALL', 'SERVE COOKED  →  GET CASH', 0x6fd39b);
 
-    const lumberZone = this.makeInteractionZone(1500, 1120, 66, BRAND.colors.timber, 'LUMBER YARD');
+    const lumberZone = this.makeInteractionZone(1500, 1120, 54, BRAND.colors.timber, 'LUMBER YARD');
     const lumberDecor = new Graphics();
-    lumberDecor.ellipse(0, 14, 108, 42).fill({ color: BRAND.colors.ao, alpha: .22 });
-    lumberDecor.moveTo(-108, 8).lineTo(0, 54).lineTo(108, 8).lineTo(0, -38).closePath()
-      .fill(0x79583d).stroke({ color: BRAND.colors.outline, width: 3 });
-    for (const x of [-82, 82]) {
-      lumberDecor.roundRect(x - 6, -93, 12, 102, 3).fill(0x68472f).stroke({ color: BRAND.colors.outline, width: 2 });
-      lumberDecor.moveTo(x, -82).lineTo(x > 0 ? 34 : -34, -8).stroke({ color: 0xa8794d, width: 7 });
+    lumberDecor.ellipse(0, 10, 82, 26).fill({ color: BRAND.colors.ao, alpha: .2 });
+    // One compact, open rack. The two dividers create three 100-log bays.
+    lumberDecor.roundRect(-80, -4, 160, 12, 3).fill(0x553b2b).stroke({ color: BRAND.colors.outline, width: 2 });
+    lumberDecor.roundRect(-80, -59, 7, 65, 2).fill(0x70492f).stroke({ color: BRAND.colors.outline, width: 1.5 });
+    lumberDecor.roundRect(73, -59, 7, 65, 2).fill(0x70492f).stroke({ color: BRAND.colors.outline, width: 1.5 });
+    for (const x of [-27, 27]) {
+      lumberDecor.roundRect(x - 3, -55, 6, 61, 2).fill(0x8a5d38).stroke({ color: BRAND.colors.outline, width: 1 });
     }
-    lumberDecor.moveTo(-101, -88).lineTo(0, -127).lineTo(101, -88).lineTo(0, -52).closePath()
-      .fill(0x3f6470).stroke({ color: BRAND.colors.outline, width: 4 });
-    lumberDecor.moveTo(-92, -91).lineTo(0, -122).lineTo(92, -91).stroke({ color: 0xe7f3ed, width: 8, cap: 'round' });
-    lumberDecor.circle(70, -5, 20).fill(0xaab9ba).stroke({ color: BRAND.colors.outline, width: 3 });
-    lumberDecor.circle(70, -5, 6).fill(BRAND.colors.ember);
-    for (let tooth = 0; tooth < 8; tooth += 1) {
-      const angle = tooth / 8 * Math.PI * 2;
-      lumberDecor.moveTo(70 + Math.cos(angle) * 18, -5 + Math.sin(angle) * 18)
-        .lineTo(70 + Math.cos(angle) * 25, -5 + Math.sin(angle) * 25)
-        .stroke({ color: 0xcbd5d4, width: 4 });
-    }
+    lumberDecor.moveTo(-76, -54).lineTo(76, -54).stroke({ color: 0xb27a48, width: 6, cap: 'round' });
+    lumberDecor.moveTo(-74, -51).lineTo(74, -51).stroke({ color: BRAND.colors.snowHighlight, width: 3, alpha: .78, cap: 'round' });
     lumberZone.addChild(lumberDecor);
     const lumberPile = new Graphics();
     lumberPile.position.set(0, -18);
     const lumberStock = worldText('LOGS 0 / 300', 14, 0xffedc5, '900');
-    lumberStock.position.set(0, -70);
+    lumberStock.position.set(0, -72);
     lumberZone.addChild(lumberPile, lumberStock);
     for (let index = 0; index < 3; index += 1) {
-      const container = this.createCampWorker(1500 + index * 28, 1120 + index * 18, 0x8b633f);
+      const rest = { x: 1590 + index * 25, y: 1125 + index * 24 };
+      const container = this.createCampWorker(rest.x, rest.y, 0x8b633f);
       container.label = 'lumberjack-crew';
       const cargo = new Graphics();
       cargo.position.set(-24, -54);
       container.addChild(cargo);
-      this.lumberjackVisuals.push({ container, cargo, x: 1500 + index * 28, y: 1120 + index * 18,
+      this.lumberjackVisuals.push({ container, cargo, x: rest.x, y: rest.y,
         state: 'idle', target: null, chopTimer: 0, carried: 0 });
     }
     for (let index = 0; index < 3; index += 1) {
@@ -2651,7 +2644,7 @@ export class Game {
       const active = index < level;
       worker.container.visible = active;
       if (!active) continue;
-      const yard = { x: 1500 + index * 25, y: 1120 + index * 16 };
+      const yard = { x: 1590 + index * 25, y: 1125 + index * 24 };
       if (worker.state === 'idle' && this.save.station.lumber < 300) worker.state = 'to-inside-gate';
       if (worker.target && !worker.target.alive && worker.state !== 'return-outside-gate') {
         worker.target = null;
@@ -3948,20 +3941,17 @@ export class Game {
     graphic.clear();
     for (let pile = 0; pile < 3; pile += 1) {
       const stored = clamp(amount - pile * 100, 0, 100);
-      const baseX = (pile - 1) * 62;
-      graphic.roundRect(baseX - 28, 5, 56, 9, 2).fill(0x4c392b).stroke({ color: BRAND.colors.outline, width: 1.5 });
-      graphic.roundRect(baseX - 29, -43, 6, 54, 2).fill(0x6f4b31);
-      graphic.roundRect(baseX + 23, -43, 6, 54, 2).fill(0x6f4b31);
+      const baseX = (pile - 1) * 53;
       for (let index = 0; index < stored; index += 1) {
         const row = Math.floor(index / 10);
         const column = index % 10;
-        const x = baseX + (column - 4.5) * 5.2;
+        const x = baseX + (column - 4.5) * 4.7;
         const y = -row * 4.5 - (column % 2) * .7;
-        graphic.roundRect(x - 4, y - 2.2, 8, 4.4, 2).fill(index % 2 ? BRAND.colors.timber : shade(BRAND.colors.timber, .14))
+        graphic.roundRect(x - 3.7, y - 2.2, 7.4, 4.4, 2).fill(index % 2 ? BRAND.colors.timber : shade(BRAND.colors.timber, .14))
           .stroke({ color: BRAND.colors.outline, width: .65 });
         graphic.circle(x + 2.7, y, 1.2).fill(0xe0b27b);
       }
-      if (stored > 0) graphic.roundRect(baseX - 22, -Math.ceil(stored / 10) * 4.5 - 8, 44, 5, 2)
+      if (stored > 0) graphic.roundRect(baseX - 20, -Math.ceil(stored / 10) * 4.5 - 8, 40, 5, 2)
         .fill({ color: BRAND.colors.snowHighlight, alpha: .72 });
     }
   }
@@ -4153,7 +4143,7 @@ export class Game {
         progress: paid / total };
     }
     if (this.save.station.lumber > 0 && distanceSquared(this.player.x, this.player.y, 1500, 1120) < 150 ** 2) {
-      return { title: 'Lumber yard', detail: `${this.save.station.lumber}/300 logs stacked across three piles`, action: 'Step onto the pile to load logs · Sell them at the Timber Post', progress: this.save.station.lumber / 300 };
+      return { title: 'Lumber yard', detail: `${this.save.station.lumber}/300 logs stacked across three 100-log sections`, action: 'Step onto the stand to load logs · Sell them at the Timber Post', progress: this.save.station.lumber / 300 };
     }
     if (this.save.station.passiveCash > 0 && distanceSquared(this.player.x, this.player.y, WORLD.cashZone.x, WORLD.cashZone.y) < 145 ** 2) {
       return { title: 'Passive takings', detail: `$${this.save.station.passiveCash} earned while you were away`, action: 'Step onto the strongbox to collect', progress: 1 };

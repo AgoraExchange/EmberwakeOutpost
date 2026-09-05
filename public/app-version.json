@@ -1,9 +1,8 @@
 {
-  "version": "1.6.0",
+  "version": "1.6.1",
   "releasedAt": "2026-09-05",
   "notes": [
-    "Lumberjacks now select and chop real trees, carry visible log stacks home, and fill a rebuilt lumber shed where every stored log is drawn.",
-    "Armory and defense progression now extends through sniper and assault rifles, buried road turrets, fighting wardens, and wave-scaled raid loot.",
-    "The Fisher Crew and Salvage Rig pads are reachable and visible, the rig has new machinery, and oversized Cookout and Timber Post signs are removed."
+    "The lumber yard is now one compact open stand split into three clearly framed 100-log sections.",
+    "Every stored log remains individually visible while the smaller footprint leaves more room around the yard and nearby upgrade pads."
   ]
 }

@@ -43,7 +43,7 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.6.1';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 

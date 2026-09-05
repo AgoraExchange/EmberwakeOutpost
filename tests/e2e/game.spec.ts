@@ -101,7 +101,7 @@ test('lumberjacks fell real trees and the shoreline crew pad is reachable', asyn
     version: 8, updatedAt: Date.now(), trailwardenName: 'Timber Fox', cash: 1000,
     upgrades: { lumberjack: 3 },
     unlocks: { zone2: true, dock: true, glacier: false, whiteout: false, raidSeen: false },
-    station: {}, tutorial: 'complete'
+    station: { lumber: 296 }, tutorial: 'complete'
   })));
   await page.goto('/');
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
@@ -111,7 +111,7 @@ test('lumberjacks fell real trees and the shoreline crew pad is reachable', asyn
   await page.evaluate(point => window.__EMBERWAKE__.teleport(point!.x - 250, point!.y - 160), target);
   await page.waitForTimeout(500);
   await page.screenshot({ path: 'test-results/lumberjack-chopping-tree.png' });
-  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().station.lumber), { timeout: 25_000 }).toBeGreaterThanOrEqual(4);
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().station.lumber), { timeout: 25_000 }).toBe(300);
   await page.evaluate(() => window.__EMBERWAKE__.teleport(1370, 1220));
   await page.waitForTimeout(500);
   await page.screenshot({ path: 'test-results/lumber-yard-after-delivery.png' });

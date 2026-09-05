@@ -4,6 +4,11 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.6.1 — Compact lumber stand
+
+- The roofed lumber shed is replaced by one smaller open stand with three divided sections holding 100 logs each.
+- All 300 stored logs remain individually visible while the cleaner footprint opens the walkway and nearby upgrade-pad space.
+
 ## 1.6.0 — Working crews and fortress firepower
 
 - Lumberjacks now walk through the compound gate, reserve an available frontier tree, visibly chop through its health, carry the tree's four-log stack home, and deposit it into the lumber yard. Multiple lumberjacks choose different trees.
