@@ -329,26 +329,16 @@ test('nearby floor pads explain their benefit and accept a purchase', async ({ p
 
 test('returning to a stocked outpost cooks food once and shows the welcome report', async ({ page, browserName, isMobile }) => {
   test.skip(isMobile || browserName !== 'chromium', 'exercise closed-app production once');
-  await page.goto('/');
-  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
-  await page.getByRole('button', { name: 'Pause and settings' }).click();
-  await page.evaluate(async () => {
-    const snapshot = { ...window.__EMBERWAKE__.getSave(), updatedAt: Date.now() - 60_000,
-      station: { rawMeat: 10, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0 } };
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open('emberwake-outpost', 1);
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    await new Promise<void>((resolve, reject) => {
-      const tx = db.transaction('saves', 'readwrite');
-      tx.objectStore('saves').put(snapshot, 'primary');
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    db.close();
+  await page.addInitScript(() => {
+    if (sessionStorage.getItem('offline-cooking-seeded')) return;
+    sessionStorage.setItem('offline-cooking-seeded', 'yes');
+    localStorage.setItem('emberwake-save-v2', JSON.stringify({
+      version: 7, updatedAt: Date.now() - 60_000, trailwardenName: 'Ember Fox', cash: 0,
+      upgrades: {}, unlocks: {}, tutorial: 'complete',
+      station: { rawMeat: 10, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0 }
+    }));
   });
-  await page.reload();
+  await page.goto('/');
   await expect(page.locator('#away-report')).toContainText('4 meals cooked');
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).waitFor();
   await page.waitForFunction(() => Boolean(window.__EMBERWAKE__));
