@@ -7,7 +7,7 @@ import { butcherSecondsFor, counterCapacityFor, upgradeCost } from './game/rules
 import { assetPath } from './game/pathing';
 import { exportSave, importSave, loadSave, normalizeTrailwardenName, resetStoredProgress, saveProgress } from './game/save';
 import { spriteCount } from './game/sprites';
-import type { SaveData, TutorialStep } from './game/types';
+import type { SaveData, TutorialStep, UpgradeId } from './game/types';
 
 function requireElement<T extends HTMLElement>(selector: string): T {
   const element = document.querySelector<T>(selector);
@@ -43,7 +43,7 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.2.0';
+const APP_VERSION = '1.3.0';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 
@@ -194,14 +194,16 @@ function openOutpost(): void {
   const save = game.getSave();
   const state = game.debugState();
   const pendingCash = state.cashLoot.reduce((sum, drop) => sum + drop.value, 0);
-  const price = (id: 'worker' | 'defense' | 'butcherSpeed' | 'counterCapacity') =>
+  const price = (id: UpgradeId) =>
     `$${Math.max(0, upgradeCost(id, save.upgrades[id]) - (save.contributions[id] ?? 0)).toLocaleString()}`;
-  const upgrade = (id: 'worker' | 'defense' | 'butcherSpeed' | 'counterCapacity') =>
+  const upgrade = (id: UpgradeId) =>
     save.upgrades[id] >= UPGRADE_BY_ID[id].maxLevel ? 'Fully upgraded' : `Next upgrade: ${price(id)}`;
   requireElement('#outpost-advice').textContent = pendingCash > 0 ? `Collect $${pendingCash.toLocaleString()} waiting around your outpost and hunting grounds.`
     : save.upgrades.worker === 0 ? `Your first automation: hire the Cook for ${price('worker')} at the kitchen pad. Supply raw meat; the cook carries meals to guests.`
     : save.station.rawMeat + save.station.meals + save.station.cookMeals === 0 ? 'The kitchen needs supplies. Hunt bears and drop raw meat behind the Cookout to restart production.'
     : save.upgrades.defense === 0 ? `Protect your growing business: the Defense pad hires spear guards for ${price('defense')}.`
+    : save.unlocks.raidSeen && save.upgrades.gateArmor === 0 ? `The next wave is stronger. Reinforce every gate for ${price('gateArmor')}.`
+    : save.unlocks.zone2 && save.upgrades.compound === 0 ? `Claim more land: reinforce the core compound for ${price('compound')}.`
     : save.station.meals >= counterCapacityFor(save.upgrades.counterCapacity) && save.upgrades.worker < 2 ? `The output shelf is full. Upgrade your Cook for ${price('worker')} to carry larger batches faster.`
     : 'Your crew is working. Improve recipes for more income per meal, or stockpile timber for your next expansion.';
   const fill = (selector: string, rows: string[][]) => {
@@ -219,13 +221,15 @@ function openOutpost(): void {
     ['Cookout', `${save.station.rawMeat} raw · ${save.station.meals}/${counterCapacityFor(save.upgrades.counterCapacity)} ready · ${butcherSecondsFor(save.upgrades.butcherSpeed, save.upgrades.worker).toFixed(2)}s per meal`, upgrade('butcherSpeed')],
     ['Meal delivery', `${UPGRADE_BY_ID.worker.effectText(save.upgrades.worker)} · ${save.station.cookMeals} carried`, upgrade('worker')],
     ['Mess Hall', `${state.customerDemand} orders · up to 8 guests in line · $${4 + save.upgrades.saleValue * 2} per bear meal`, upgrade('counterCapacity')],
-    ['Compound defense', `${defenseTierFor(save.upgrades.defense).name} · ${Math.ceil(state.gateHealth)} gate HP`, upgrade('defense')]
+    ['Compound defense', `${defenseTierFor(save.upgrades.defense).name} · ${state.defense.warriors} roaming wardens · ${Math.ceil(state.gateHealth)} gate HP`, upgrade('defense')],
+    ['Fortifications', `${UPGRADE_BY_ID.compound.effectText(save.upgrades.compound)} · ${UPGRADE_BY_ID.gateArmor.effectText(save.upgrades.gateArmor)}`, `${upgrade('compound')} · Gate: ${upgrade('gateArmor')}`],
+    ['Raid readiness', `Next wave ${save.stats.raidsFaced + 1} · ${save.stats.raidsWon} victories`, save.unlocks.raidSeen ? upgrade('warriors') : 'First raid unlocks fortification options']
   ]);
   fill('#outpost-districts', [
     ['Eastern Frontier', 'More hunting grounds and furnace upgrades.', save.unlocks.zone2 ? 'OPEN' : `${30 - (save.contributions.zone2 ?? 0)} timber remaining`],
-    ['Shoreline Works', 'Fishing dock and smokehouse for higher-value frostfin meals.', save.unlocks.dock ? 'OPEN' : `${45 - (save.contributions.dock ?? 0)} timber remaining`],
-    ['Glacier Reach', 'Deeper forests and tougher wildlife beyond the frontier.', save.unlocks.glacier ? 'OPEN' : `$${650 - (save.contributions.glacier ?? 0)} · Eastern Frontier required`],
-    ['Whiteout Expanse', 'The farthest hunting expedition.', save.unlocks.whiteout ? 'OPEN' : `$${1600 - (save.contributions.whiteout ?? 0)} · Glacier Reach required`]
+    ['Shoreline Works', 'Fishery upgrades, hired fishing crews, smokehouse plates, and premium guests.', save.unlocks.dock ? `${UPGRADE_BY_ID.fishery.effectText(save.upgrades.fishery)} · ${UPGRADE_BY_ID.fisher.effectText(save.upgrades.fisher)}` : `${45 - (save.contributions.dock ?? 0)} timber remaining`],
+    ['Glacier Reach', 'A buildable salvage rig creates physical ore-cash crates to collect.', save.unlocks.glacier ? UPGRADE_BY_ID.oreRig.effectText(save.upgrades.oreRig) : `$${650 - (save.contributions.glacier ?? 0)} · Eastern Frontier required`],
+    ['Whiteout Expanse', 'A robot foundry builds utility crews that accelerate remote industry.', save.unlocks.whiteout ? UPGRADE_BY_ID.robots.effectText(save.upgrades.robots) : `$${1600 - (save.contributions.whiteout ?? 0)} · Glacier Reach required`]
   ]);
   requireElement('#outpost-screen').classList.add('visible');
   requireElement('#outpost-screen').setAttribute('aria-hidden', 'false');

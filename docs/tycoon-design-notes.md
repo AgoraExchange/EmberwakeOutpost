@@ -3,6 +3,7 @@
 Primary references reviewed:
 
 - [My Perfect Hotel, publisher's game description](https://play.google.com/store/apps/details?id=com.master.hotelmaster): manual service develops into staffing, amenities, and distinct properties; employee speed affects throughput.
+- [SuperWEIRD Game Kit](https://github.com/ludenio/SuperWEIRDGameKit): its CC0 shop/production prototype links customer orders to expanding production and separates worlds into distinct visual collections. Emberwake reuses the design principle, not its Defold engine code.
 - [Idle Miner Tycoon, developer's progression guide](https://www.kolibrigames.com/blog/lets-dig-in/): production, transport, and storage must grow together; new territory provides longer-term progression.
 - [SayGames on developing My Perfect Hotel](https://blog.say.games/posts/my-perfect-hotel-saygames-latest-hybrid-casual-hit-becomes-the-most-downloaded-game-in-the-world): the publisher describes continued product iteration rather than a single final redesign.
 
@@ -17,6 +18,6 @@ Emberwake adaptations implemented:
 
 Existing expansion sequence: Eastern Frontier (30 timber), Shoreline Works (45 timber; fishing and smokehouse), Glacier Reach ($650), Whiteout Expanse ($1,600). Defense develops from spear watch through archer towers into automatic turrets.
 
-Future content direction, not shipped features: separate production businesses and local defenses in each distant district, with distinct resources and machines. These need new routes, balancing, original art, and playtesting rather than decorative buildings that promise nonexistent mechanics.
+Shipped in 1.3: Shoreline fishery staffing, Glacier salvage income, Whiteout utility robots, compound annexes, separate gate armor, roaming wardens, and persistent numbered raid scaling. Each distant district now introduces a functioning investment instead of serving only as a larger hunting field.
 
 “Three times better” is a creative target, not a measured result. Validate these changes through task completion, readability on phones, delivery throughput, and actual player feedback.

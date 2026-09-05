@@ -23,6 +23,13 @@ export type UpgradeId =
   | 'saleValue'
   | 'worker'
   | 'defense'
+  | 'gateArmor'
+  | 'compound'
+  | 'warriors'
+  | 'fishery'
+  | 'fisher'
+  | 'oreRig'
+  | 'robots'
   | 'furnace'
   | 'infirmary';
 
@@ -52,6 +59,8 @@ export interface StationState {
   fishMeals: number;
   butcherProgress: number;
   fishProgress: number;
+  fisherProgress: number;
+  oreProgress: number;
 }
 
 export interface Stats {
@@ -61,6 +70,8 @@ export interface Stats {
   fishCaught: number;
   deaths: number;
   raidsWon: number;
+  /** Raid attempts begun. Unlike wins, this advances even after a breach. */
+  raidsFaced: number;
   playSeconds: number;
   /** Logs felled. Added after v2; old saves migrate in with zero. */
   woodChopped: number;

@@ -38,7 +38,32 @@ export function counterCapacityFor(level: number): number { return 4 + level * 3
 export function queueCapacityFor(_level: number): number { return 8; }
 export function customerIntervalFor(level: number): number { return Math.max(1.6, 3.8 * Math.pow(0.88, level)); }
 export function mealValueFor(level: number): number { return ECONOMY.baseMealValue + level * 2; }
-export function gateHealthFor(level: number): number { return 220 + level * 70; }
+export function gateHealthFor(defenseLevel: number, armorLevel = 0, compoundLevel = 0): number {
+  return 220 + defenseLevel * 70 + armorLevel * 180 + compoundLevel * 120;
+}
+
+export interface RaidProfile {
+  wave: number;
+  count: number;
+  healthMultiplier: number;
+  damageMultiplier: number;
+  speedMultiplier: number;
+  reward: number;
+}
+
+/** Endless but capped raid scaling keeps later waves dangerous without becoming impossible. */
+export function raidProfileFor(waveNumber: number): RaidProfile {
+  const wave = Math.max(1, Math.floor(waveNumber));
+  const steps = wave - 1;
+  return {
+    wave,
+    count: 4 + Math.min(12, Math.ceil(steps * 1.5)),
+    healthMultiplier: Math.min(3.5, 1 + steps * 0.14),
+    damageMultiplier: Math.min(2.25, 1 + steps * 0.07),
+    speedMultiplier: Math.min(1.35, 1 + steps * 0.015),
+    reward: 34 + wave * 8
+  };
+}
 export function warmRadiusFor(level: number): number { return 265 + level * 40; }
 export function respawnSecondsFor(level: number): number { return Math.max(0.85, 2 - level * 0.28); }
 
@@ -105,16 +130,16 @@ export function createUpgradeLevels(): Record<UpgradeId, number> {
 
 export function createDefaultSave(): SaveData {
   return {
-    version: 5,
+    version: 6,
     updatedAt: Date.now(),
     trailwardenName: '',
     cash: 0,
     contributions: {},
     upgrades: createUpgradeLevels(),
     unlocks: { zone2: false, dock: false, glacier: false, whiteout: false, raidSeen: false },
-    station: { cookMeals: 0, rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0 },
+    station: { cookMeals: 0, rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0, fisherProgress: 0, oreProgress: 0 },
     tutorial: 'move',
-    stats: { bearsDefeated: 0, totalCashEarned: 0, mealsSold: 0, fishCaught: 0, deaths: 0, raidsWon: 0, playSeconds: 0, woodChopped: 0, woodSold: 0 },
+    stats: { bearsDefeated: 0, totalCashEarned: 0, mealsSold: 0, fishCaught: 0, deaths: 0, raidsWon: 0, raidsFaced: 0, playSeconds: 0, woodChopped: 0, woodSold: 0 },
     settings: { ...DEFAULT_SETTINGS }
   };
 }

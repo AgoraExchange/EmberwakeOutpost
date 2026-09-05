@@ -8,6 +8,7 @@ import {
   butcherSecondsFor,
   convertStation,
   purchaseMeal,
+  raidProfileFor,
   upgradeCost,
   weaponDamageFor
 } from '../../src/game/rules';
@@ -37,6 +38,12 @@ describe('combat and cooldown rules', () => {
     expect(applyRaidProfitDamage(100, 0)).toEqual({ cash: 94, lost: 6 });
     expect(applyRaidProfitDamage(4, 9)).toEqual({ cash: 0, lost: 4 });
     expect(applyRaidProfitDamage(0, 0)).toEqual({ cash: 0, lost: 0 });
+  });
+
+  it('scales numbered raids while keeping late waves bounded', () => {
+    expect(raidProfileFor(1)).toMatchObject({ wave: 1, count: 4, healthMultiplier: 1, damageMultiplier: 1, reward: 42 });
+    expect(raidProfileFor(8).count).toBeGreaterThan(raidProfileFor(2).count);
+    expect(raidProfileFor(100)).toMatchObject({ count: 16, healthMultiplier: 3.5, damageMultiplier: 2.25, speedMultiplier: 1.35 });
   });
 });
 

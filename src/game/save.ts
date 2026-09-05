@@ -53,7 +53,7 @@ export function migrateSave(input: unknown): SaveData {
     return defaults;
   }
 
-  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5) return defaults;
+  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6) return defaults;
   const next = structuredClone(defaults);
   next.updatedAt = finiteNumber(source.updatedAt, Date.now());
   next.trailwardenName = normalizeTrailwardenName(source.trailwardenName);
@@ -81,7 +81,9 @@ export function migrateSave(input: unknown): SaveData {
     rawFish: Math.max(0, Math.floor(finiteNumber(source.station?.rawFish, 0))),
     fishMeals: Math.max(0, Math.floor(finiteNumber(source.station?.fishMeals, 0))),
     butcherProgress: Math.max(0, finiteNumber(source.station?.butcherProgress, 0)),
-    fishProgress: Math.max(0, finiteNumber(source.station?.fishProgress, 0))
+    fishProgress: Math.max(0, finiteNumber(source.station?.fishProgress, 0)),
+    fisherProgress: Math.max(0, finiteNumber(source.station?.fisherProgress, 0)),
+    oreProgress: Math.max(0, finiteNumber(source.station?.oreProgress, 0))
   };
   next.tutorial = source.tutorial ?? defaults.tutorial;
   next.stats = {
@@ -91,6 +93,7 @@ export function migrateSave(input: unknown): SaveData {
     fishCaught: Math.max(0, Math.floor(finiteNumber(source.stats?.fishCaught, 0))),
     deaths: Math.max(0, Math.floor(finiteNumber(source.stats?.deaths, 0))),
     raidsWon: Math.max(0, Math.floor(finiteNumber(source.stats?.raidsWon, 0))),
+    raidsFaced: Math.max(0, Math.floor(finiteNumber(source.stats?.raidsFaced, source.stats?.raidsWon ?? 0))),
     playSeconds: Math.max(0, finiteNumber(source.stats?.playSeconds, 0)),
     // Added after v2. Absent in older saves, which migrate in at zero.
     woodChopped: Math.max(0, Math.floor(finiteNumber(source.stats?.woodChopped, 0))),
@@ -162,7 +165,7 @@ export function importSave(text: string): SaveData {
   const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || !('version' in parsed)) throw new Error('This file is not an Emberwake save.');
   const version = (parsed as { version?: unknown }).version;
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5) throw new Error('This save was created by an unsupported Emberwake version.');
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6) throw new Error('This save was created by an unsupported Emberwake version.');
   return migrateSave(parsed);
 }
 

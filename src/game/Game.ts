@@ -42,6 +42,7 @@ import {
   normalize,
   purchaseMeal,
   queueCapacityFor,
+  raidProfileFor,
   respawnSecondsFor,
   upgradeCost,
   warmRadiusFor,
@@ -115,6 +116,8 @@ interface GateVisual {
   container: Container;
   leftDoor: Graphics;
   rightDoor: Graphics;
+  leftArmor: Graphics;
+  rightArmor: Graphics;
   /** Projected direction from the gate centre to the right-hand post. */
   slide: Vec2;
   open: number;
@@ -178,7 +181,10 @@ interface TreeEntity {
 
 interface Particle { graphic: Graphics; x: number; y: number; vx: number; vy: number; life: number; maxLife: number; worldSpace: boolean }
 interface DamageLabel { text: Text; x: number; y: number; life: number; maxLife: number }
-type DefenderPost = ReturnType<typeof createDefenseVisual> & Vec2 & { cooldown: number; lastShot: number };
+type DefenderPost = ReturnType<typeof createDefenseVisual> & Vec2 & {
+  cooldown: number; lastShot: number; mobile: boolean; home: Vec2;
+  damage: number; range: number; cadence: number; projectile: 'spear' | 'archer' | 'turret';
+};
 interface StationVisuals {
   furnaceGlow: Graphics; furnaceFlame: Graphics; warmRing: Graphics; butcherProgress: Graphics; butcherStock: Text;
   mealOutput: Container; mealPile: Graphics; mealOutputStock: Text; cashStock: Text;
@@ -214,6 +220,14 @@ const PAD_SLOTS: PadSlot[] = [
   // The Armory keeps a permanent plate in the gate yard, on the way out to the hunt.
   { x: 1560, y: 870, fixed: 'weaponTier' },
   { x: 1460, y: 680, fixed: 'defense' },
+  { x: 1580, y: 1040, fixed: 'gateArmor' },
+  { x: 350, y: 1040, fixed: 'compound' },
+  { x: 1380, y: 1040, fixed: 'warriors' },
+  // Each remote district has its own permanent production and staffing investments.
+  { x: 790, y: 1840, fixed: 'fishery' },
+  { x: 850, y: 2020, fixed: 'fisher' },
+  { x: 4850, y: 2320, fixed: 'oreRig' },
+  { x: 7060, y: 3970, fixed: 'robots' },
   { x: 1080, y: 850, fixed: 'worker' },
   { x: 1250, y: 850, fixed: 'butcherSpeed' },
   // The rest form an upgrade row along the south of the hearth district.
@@ -279,6 +293,11 @@ export class Game {
   private readonly upgradePads: UpgradePad[] = [];
   private readonly unlockPads: UnlockPad[] = [];
   private readonly trees: TreeEntity[] = [];
+  private readonly fisherVisuals: Container[] = [];
+  private readonly robotVisuals: Container[] = [];
+  private oreRigBuilding!: Container;
+  private robotFoundry!: Container;
+  private oreCashZone!: Container;
   private chopCooldown = 0;
   private sellTimer = 0;
   private deliverTimer = 0;
@@ -299,6 +318,7 @@ export class Game {
   private healedSinceLabel = 0;
   private objectiveKey = '';
   private gateBarKey = '';
+  private gateArmorVisualLevel = -1;
   private blockerCache: Rect[] = [];
   private blockerCacheKey = '';
   private readonly revealedPads = new Set<UpgradeId>();
@@ -341,8 +361,12 @@ export class Game {
   private raidFoodHitVisual = 0;
   private raidBankEmptyShown = false;
   private readonly defenders: DefenderPost[] = [];
-  private defenseVisualLevel = -1;
+  private defenseVisualLevel = '';
+  private readonly fortificationVisuals: Container[] = [];
+  private readonly compoundBlockers: Rect[] = [];
+  private compoundVisualLevel = -1;
   private defenseShots = 0;
+  private raidWave = 1;
   private defeatTimer = 0;
 
   static async create(host: HTMLElement, save: SaveData, callbacks: GameCallbacks): Promise<Game> {
@@ -355,7 +379,8 @@ export class Game {
     this.save = save;
     this.callbacks = callbacks;
     this.audio = new AudioEngine(save.settings);
-    this.gateHealth = gateHealthFor(save.upgrades.defense);
+    this.gateHealth = this.gateMaxHealth();
+    this.raidWave = Math.max(1, save.stats.raidsFaced + 1);
     // Saved ready stock has no saved visitors, so recreate one order per plate.
     this.customerBearDemand = save.station.meals + save.station.cookMeals;
     this.cookDelivering = save.station.cookMeals > 0;
@@ -385,9 +410,11 @@ export class Game {
 
     this.buildGround();
     this.station = this.buildCamp();
+    this.refreshCompoundVisuals();
     this.player = this.createPlayer();
     this.buildUpgradePads();
     this.buildUnlockPads();
+    this.buildDistrictBusinesses();
     this.buildDecorations();
     for (const spawn of ENEMY_SPAWNS) {
       if (spawn.unlock && !this.save.unlocks[spawn.unlock]) continue;
@@ -400,7 +427,7 @@ export class Game {
     const knob = document.querySelector<HTMLElement>('#joystick-knob');
     if (!joystick || !knob) throw new Error('Joystick UI missing');
     this.input = new InputController(host, joystick, knob, this.save.settings.joystick, () => { void this.audio.unlock(); });
-    this.gateHealth = gateHealthFor(this.save.upgrades.defense);
+    this.gateHealth = this.gateMaxHealth();
     this.app.ticker.maxFPS = this.save.settings.quality === 'low' ? 30 : 60;
     this.app.ticker.add(this.onFrame, this);
     window.addEventListener('resize', this.onResize);
@@ -444,7 +471,7 @@ export class Game {
       cashDrops: this.cashDrops.length,
       cashLoot: this.cashDrops.map(({ x, y, value }) => ({ x, y, value })),
       rawLoot: this.cargoDrops.filter(drop => drop.kind === 'meat').map(({ x, y, amount }) => ({ x, y, amount })),
-      defense: { level: this.save.upgrades.defense, kind: defenseTierFor(this.save.upgrades.defense).kind, name: defenseTierFor(this.save.upgrades.defense).name, posts: this.defenders.length, shots: this.defenseShots },
+      defense: { level: this.save.upgrades.defense, kind: defenseTierFor(this.save.upgrades.defense).kind, name: defenseTierFor(this.save.upgrades.defense).name, posts: this.defenders.length, warriors: this.defenders.filter(post => post.mobile).length, shots: this.defenseShots },
       cargoAnchor: { x: this.player.pack.x, y: this.player.pack.y, bottom: this.player.pack.getLocalBounds().maxY + this.player.pack.y },
       customers: this.customers.length,
       customerDemand: this.customerBearDemand + this.customerFishDemand,
@@ -454,6 +481,7 @@ export class Game {
       upgrades: { ...this.save.upgrades },
       unlocks: { ...this.save.unlocks },
       raidState: this.raidState,
+      raidWave: this.raidWave,
       raidBreached: this.raidBreached,
       raidCashLost: this.raidCashLost,
       gateHealth: this.gateHealth,
@@ -933,15 +961,41 @@ export class Game {
     // of making actors pass through a single painted slab.
     const leftDoor = leaf(-postX, -postY, 0, 0);
     const rightDoor = leaf(0, 0, postX, postY);
+    const leftArmor = new Graphics();
+    const rightArmor = new Graphics();
+    leftDoor.addChild(leftArmor);
+    rightDoor.addChild(rightArmor);
     gate.addChild(leftDoor, rightDoor, post(-postX, -postY), post(postX, postY));
     this.world.addChild(gate);
-    return { container: gate, leftDoor, rightDoor, slide: { x: postX, y: postY }, open: 0, heldOpen: false };
+    return { container: gate, leftDoor, rightDoor, leftArmor, rightArmor, slide: { x: postX, y: postY }, open: 0, heldOpen: false };
+  }
+
+  private refreshGateArmor(): void {
+    const level = this.save.upgrades.gateArmor;
+    if (level === this.gateArmorVisualLevel) return;
+    this.gateArmorVisualLevel = level;
+    const gate = this.station.compoundGate;
+    gate.leftArmor.clear();
+    gate.rightArmor.clear();
+    if (level <= 0) return;
+    const draw = (armor: Graphics, fromX: number, fromY: number, toX: number, toY: number): void => {
+      const mx = (fromX + toX) / 2;
+      const my = (fromY + toY) / 2;
+      armor.moveTo(fromX, fromY - 48).lineTo(toX, toY - 14).stroke({ color: 0xd1a56e, width: 7 });
+      armor.moveTo(fromX, fromY - 14).lineTo(toX, toY - 48).stroke({ color: 0x6a7880, width: 6 });
+      if (level >= 3) armor.roundRect(mx - 18, my - 43, 36, 29, 5).fill(0x526c78).stroke({ color: 0xc4d6d8, width: 3 });
+      if (level >= 5) armor.circle(mx, my - 29, 7).fill(0xffb151).circle(mx, my - 29, 3).fill(0xfff0a5);
+    };
+    draw(gate.leftArmor, -gate.slide.x, -gate.slide.y, 0, 0);
+    draw(gate.rightArmor, 0, 0, gate.slide.x, gate.slide.y);
   }
 
   private refreshDefenses(): void {
     const level = this.save.upgrades.defense;
-    if (level === this.defenseVisualLevel) return;
-    this.defenseVisualLevel = level;
+    const warriorLevel = this.save.upgrades.warriors;
+    const signature = `${level}|${warriorLevel}`;
+    if (signature === this.defenseVisualLevel) return;
+    this.defenseVisualLevel = signature;
     for (const post of this.defenders) post.container.destroy({ children: true });
     this.defenders.length = 0;
     const tier = defenseTierFor(level);
@@ -952,8 +1006,82 @@ export class Game {
       visual.container.label = `compound-defense-${tier.kind}`;
       this.place(visual.container, x, y, 35);
       this.world.addChild(visual.container);
-      this.defenders.push({ ...visual, x, y, cooldown: index * .13, lastShot: -100 });
+      this.defenders.push({ ...visual, x, y, home: { x, y }, mobile: false, damage: tier.damage, range: tier.range,
+        cadence: tier.cadence, projectile: tier.kind, cooldown: index * .13, lastShot: -100 });
     }
+    for (let index = 0; index < warriorLevel * 2; index += 1) {
+      const angle = index / Math.max(1, warriorLevel * 2) * Math.PI * 2;
+      const x = WORLD.furnace.x + Math.cos(angle) * (360 + (index % 2) * 70);
+      const y = WORLD.furnace.y + Math.sin(angle) * (260 + (index % 2) * 55);
+      const visual = createDefenseVisual('spear', warriorLevel >= 4);
+      visual.container.label = 'roaming-compound-warrior';
+      this.place(visual.container, x, y, 35);
+      this.world.addChild(visual.container);
+      this.defenders.push({ ...visual, x, y, home: { x, y }, mobile: true, damage: 12 + warriorLevel * 4,
+        range: 175 + warriorLevel * 18, cadence: Math.max(.62, 1.15 - warriorLevel * .1), projectile: 'spear', cooldown: index * .11, lastShot: -100 });
+    }
+  }
+
+  private gateMaxHealth(): number {
+    return gateHealthFor(this.save.upgrades.defense, this.save.upgrades.gateArmor, this.save.upgrades.compound);
+  }
+
+  /** Rebuilds the visible construction unlocked by the Compound pad. */
+  private refreshCompoundVisuals(): void {
+    const level = this.save.upgrades.compound;
+    if (level === this.compoundVisualLevel) return;
+    this.compoundVisualLevel = level;
+    for (const visual of this.fortificationVisuals) visual.destroy({ children: true });
+    this.fortificationVisuals.length = 0;
+    this.compoundBlockers.length = 0;
+
+    const trackFence = (x: number, y: number, width: number, height: number, blocks = true): void => {
+      const before = new Set(this.world.children);
+      this.addFence(x, y, width, height);
+      for (const child of this.world.children) if (!before.has(child)) this.fortificationVisuals.push(child);
+      if (blocks) this.compoundBlockers.push({ x, y, width, height });
+    };
+    const addFloor = (x: number, y: number, width: number, height: number, top: number): void => {
+      const floor = new Graphics();
+      this.raisedSlab(floor, x, y, width, height, 18, top, BRAND.colors.yardEdge);
+      floor.zIndex = -799;
+      floor.label = 'compound-annex-floor';
+      this.world.addChild(floor);
+      this.fortificationVisuals.push(floor);
+    };
+
+    if (level >= 1) {
+      // A second timber line, iron braces, and corner watchfires visibly harden the core.
+      trackFence(WORLD.camp.x + 28, WORLD.camp.y + 34, WORLD.camp.width - 56, 18, false);
+      trackFence(WORLD.camp.x + 28, WORLD.camp.y + 34, 18, WORLD.camp.height - 68, false);
+      for (const [x, y] of [[350, 350], [1690, 350], [350, 1390]] as Array<[number, number]>) {
+        const brace = new Graphics();
+        brace.roundRect(-13, -64, 26, 64, 4).fill(0x52616a).stroke({ color: BRAND.colors.outline, width: 3 });
+        brace.moveTo(-18, -52).lineTo(18, -12).moveTo(18, -52).lineTo(-18, -12).stroke({ color: 0xd0a66c, width: 6 });
+        brace.circle(0, -73, 13).fill(0xff9c50).circle(0, -73, 6).fill(0xffe19a);
+        this.place(brace, x, y, 70);
+        brace.label = 'compound-reinforcement';
+        this.world.addChild(brace);
+        this.fortificationVisuals.push(brace);
+      }
+    }
+    if (level >= 2) {
+      // Shoreline annex wraps the fishing economy and leaves a broad south gate.
+      addFloor(180, 1430, 1600, 770, 0x9d9b88);
+      trackFence(180, 1430, 20, 770);
+      trackFence(1760, 1430, 20, 770);
+      trackFence(180, 2180, 560, 20);
+      trackFence(1100, 2180, 680, 20);
+    }
+    if (level >= 3) {
+      // The eastern stronghold claims the first frontier up to its guarded ice pass.
+      addFloor(1730, 300, 810, 1150, 0xae9878);
+      trackFence(1730, 300, 810, 20);
+      trackFence(1730, 1430, 810, 20);
+      trackFence(2520, 300, 20, 410);
+      trackFence(2520, 1030, 20, 420);
+    }
+    this.blockerCacheKey = '';
   }
 
   private createInfirmary(): void {
@@ -1141,7 +1269,8 @@ export class Game {
       // A pinned slot always offers its own line, and hides once that line is maxed.
       if (pad.fixed) {
         pad.id = pad.fixed;
-        pad.container.visible = pad.fixed === 'defense' || this.save.upgrades[pad.fixed] < UPGRADE_BY_ID[pad.fixed].maxLevel;
+        pad.container.visible = isUpgradeAvailable(pad.fixed, this.save)
+          && (pad.fixed === 'defense' || this.save.upgrades[pad.fixed] < UPGRADE_BY_ID[pad.fixed].maxLevel);
         continue;
       }
       if (pad.paid > 0) continue;
@@ -1197,6 +1326,45 @@ export class Game {
       this.world.addChild(container);
       const contributed = this.save.contributions[spec.kind] ?? 0;
       this.unlockPads.push({ ...spec, paid: spec.payment === 'cash' ? contributed : 0, delivered: spec.payment === 'wood' ? contributed : 0, lockedUntilExit: false, container, plate, title, detail, badge, badgeCount, progress, paintKey: '', dwell: 0 });
+    }
+  }
+
+  private buildDistrictBusinesses(): void {
+    // A staffed shoreline finally reads as a working business rather than empty ice.
+    for (let index = 0; index < 3; index += 1) {
+      const fisher = this.createCampWorker(520 + index * 95, 1810 + (index % 2) * 80, 0x3e7886);
+      fisher.label = 'fisher-crew';
+      this.fisherVisuals.push(fisher);
+    }
+
+    const rig = isoBuilding({ halfWidth: 112, halfDepth: 72, height: 132, wallColor: 0x586873, roofColor: 0xe0a14f, label: 'SALVAGE RIG' });
+    this.oreRigBuilding = rig.container;
+    this.place(this.oreRigBuilding, 5050, 2380);
+    this.oreRigBuilding.label = 'glacier-salvage-rig';
+    this.world.addChild(this.oreRigBuilding);
+    this.blockers.push({ x: 4938, y: 2308, width: 224, height: 144 });
+    this.oreCashZone = this.makeInteractionZone(5200, 2470, 56, BRAND.colors.gold, 'COLLECT ORE CASH');
+
+    const foundry = isoBuilding({ halfWidth: 130, halfDepth: 84, height: 148, wallColor: 0x394f62, roofColor: 0x62cdd0, label: 'ROBOT FOUNDRY' });
+    this.robotFoundry = foundry.container;
+    this.place(this.robotFoundry, 7280, 3900);
+    this.robotFoundry.label = 'whiteout-robot-foundry';
+    this.world.addChild(this.robotFoundry);
+    this.blockers.push({ x: 7150, y: 3816, width: 260, height: 168 });
+    for (let index = 0; index < 6; index += 1) {
+      const robot = new Container();
+      const shadow = contactShadow(20, 8, .2);
+      shadow.position.set(0, 14);
+      const body = new Graphics();
+      body.roundRect(-14, -34, 28, 35, 7).fill(0x607d8c).stroke({ color: BRAND.colors.outline, width: 3 });
+      body.roundRect(-11, -48, 22, 17, 5).fill(0xa8d9df).stroke({ color: BRAND.colors.outline, width: 2.5 });
+      body.circle(-5, -40, 3).fill(0xffd166).circle(5, -40, 3).fill(0xffd166);
+      body.moveTo(-9, 1).lineTo(-13, 13).moveTo(9, 1).lineTo(13, 13).stroke({ color: 0x3c5564, width: 6, cap: 'round' });
+      robot.addChild(shadow, body);
+      this.place(robot, 7110 + (index % 3) * 90, 4060 + Math.floor(index / 3) * 90, 35);
+      robot.label = 'utility-robot';
+      this.world.addChild(robot);
+      this.robotVisuals.push(robot);
     }
   }
 
@@ -1629,10 +1797,11 @@ export class Game {
    */
   private getActiveBlockers(): Rect[] {
     // Standing trees block; felled ones do not, so the key tracks tree state too.
-    const key = `${this.save.unlocks.zone2}|${this.save.unlocks.dock}|${this.save.unlocks.glacier}|${this.save.unlocks.whiteout}|${this.treeVersion}|${this.save.upgrades.defense}`;
+    const key = `${this.save.unlocks.zone2}|${this.save.unlocks.dock}|${this.save.unlocks.glacier}|${this.save.unlocks.whiteout}|${this.treeVersion}|${this.save.upgrades.defense}|${this.save.upgrades.compound}`;
     if (key !== this.blockerCacheKey) {
       this.blockerCacheKey = key;
       this.blockerCache = [...this.blockers];
+      this.blockerCache.push(...this.compoundBlockers);
       if (defenseTierFor(this.save.upgrades.defense).kind !== 'spear') {
         for (const post of this.defenders) this.blockerCache.push({ x: post.x - 30, y: post.y - 25, width: 60, height: 50 });
       }
@@ -1654,8 +1823,11 @@ export class Game {
   }
 
   private isInsideCompound(x: number, y: number, margin = 0): boolean {
-    return x >= WORLD.camp.x - margin && x <= WORLD.camp.x + WORLD.camp.width + margin
+    const core = x >= WORLD.camp.x - margin && x <= WORLD.camp.x + WORLD.camp.width + margin
       && y >= WORLD.camp.y - margin && y <= WORLD.camp.y + WORLD.camp.height + margin;
+    const shoreline = this.save.upgrades.compound >= 2 && x >= 180 - margin && x <= 1780 + margin && y >= 1430 - margin && y <= 2200 + margin;
+    const eastern = this.save.upgrades.compound >= 3 && x >= 1730 - margin && x <= 2540 + margin && y >= 300 - margin && y <= 1450 + margin;
+    return core || shoreline || eastern;
   }
 
   /** The furthest east a respawn may use without appearing behind a locked pass. */
@@ -2194,7 +2366,8 @@ export class Game {
     } else this.save.station.butcherProgress = Math.min(this.save.station.butcherProgress, .98);
 
     if (this.save.unlocks.dock && this.save.station.rawFish > 0 && this.save.station.fishMeals < readyCapacity) {
-      const fishSeconds = Math.max(1.4, ECONOMY.fishProcessSeconds * Math.pow(.88, this.save.upgrades.butcherSpeed));
+      const fishSeconds = Math.max(.75, ECONOMY.fishProcessSeconds * Math.pow(.88, this.save.upgrades.butcherSpeed)
+        / (1 + this.save.upgrades.fishery * .2));
       this.save.station.fishProgress += dt / fishSeconds;
       if (this.save.station.fishProgress >= 1) {
         this.save.station.fishProgress -= 1;
@@ -2209,6 +2382,31 @@ export class Game {
         }
       }
     } else this.save.station.fishProgress = Math.min(this.save.station.fishProgress, .98);
+
+    const fisherLevel = this.save.upgrades.fisher;
+    if (this.save.unlocks.dock && fisherLevel > 0) {
+      const interval = Math.max(2.4, 7.2 - fisherLevel * 1.3);
+      this.save.station.fisherProgress += dt / interval;
+      if (this.save.station.fisherProgress >= 1) {
+        this.save.station.fisherProgress -= 1;
+        this.save.station.rawFish += fisherLevel;
+        this.spawnBurst(WORLD.fishDock.x, WORLD.fishDock.y - 20, BRAND.colors.fish, 5 + fisherLevel);
+        this.audio.play('fish', .42);
+      }
+    } else this.save.station.fisherProgress = 0;
+
+    const rigLevel = this.save.upgrades.oreRig;
+    if (this.save.unlocks.glacier && rigLevel > 0) {
+      const interval = Math.max(2.8, 10 - rigLevel * .85 - this.save.upgrades.robots * .7);
+      this.save.station.oreProgress += dt / interval;
+      const uncollected = this.cashDrops.filter(drop => distanceSquared(drop.x, drop.y, 5200, 2470) < 150 ** 2).length;
+      if (this.save.station.oreProgress >= 1 && uncollected < 12) {
+        this.save.station.oreProgress -= 1;
+        this.createCashDrop(12 + rigLevel * 8, { x: 5200, y: 2470 });
+        this.spawnBurst(5050, 2380, BRAND.colors.gold, 7);
+        this.audio.play('build', .4);
+      }
+    } else this.save.station.oreProgress = Math.min(this.save.station.oreProgress, .99);
   }
 
   private updateCook(dt: number): void {
@@ -2504,8 +2702,9 @@ export class Game {
         pad.paid = 0;
         pad.lockedUntilExit = true;
         if (pad.id === 'maxHealth') this.player.health = maxHealthFor(this.save.upgrades.maxHealth);
-        if (pad.id === 'defense') this.gateHealth = gateHealthFor(this.save.upgrades.defense);
+        if (pad.id === 'defense' || pad.id === 'gateArmor' || pad.id === 'compound') this.gateHealth = this.gateMaxHealth();
         if (pad.id === 'weaponTier') drawWeapon(this.player.weapon, this.save.upgrades.weaponTier);
+        if (pad.id === 'compound') this.refreshCompoundVisuals();
         this.refreshWorldState();
         this.refreshPadVisuals();
         this.audio.play('upgrade');
@@ -2612,39 +2811,44 @@ export class Game {
       this.fishCatchProgress = Math.max(0, this.fishCatchProgress - dt * .4);
       return;
     }
-    this.fishCatchProgress += dt / ECONOMY.fishCatchSeconds;
+    const fisheryLevel = this.save.upgrades.fishery;
+    this.fishCatchProgress += dt / (ECONOMY.fishCatchSeconds / (1 + fisheryLevel * .25));
     if (this.fishCatchProgress >= 1) {
       this.fishCatchProgress = 0;
-      this.player.fish += 1;
-      this.save.stats.fishCaught += 1;
+      const caught = 1 + Math.floor(fisheryLevel / 3);
+      this.player.fish += caught;
+      this.save.stats.fishCaught += caught;
       this.audio.play('fish');
       this.audio.haptic(14);
       this.spawnBurst(WORLD.fishDock.x + 80, WORLD.fishDock.y - 20, BRAND.colors.fish, 9);
-      this.callbacks.toast('Fresh frostfin caught');
+      this.callbacks.toast(`Fresh frostfin caught${caught > 1 ? ` ×${caught}` : ''}`);
       this.requestSave();
     }
   }
 
   private updateRaid(dt: number): void {
+    // Recruited wardens visibly patrol at all times; during a raid the same loop acquires targets.
+    this.updateGuard(dt);
     if (this.raidState === 'idle' && (!this.save.unlocks.zone2 || this.save.stats.totalCashEarned < ECONOMY.raidFirstEarnedCash)) return;
     this.raidTimer -= dt;
     if (this.raidState === 'idle' && this.raidTimer <= 0) {
       this.raidState = 'warning';
       this.raidTimer = ECONOMY.raidWarning;
-      this.callbacks.raid(`FROSTWILD SURGE · Camp raid in ${Math.ceil(this.raidTimer)}s`);
+      const wave = Math.max(1, this.save.stats.raidsFaced + 1);
+      this.callbacks.raid(`WAVE ${wave} · RAID IN ${Math.ceil(this.raidTimer)}s`);
       this.audio.play('warning', 1.2);
     } else if (this.raidState === 'warning') {
-      this.callbacks.raid(`FROSTWILD SURGE · Camp raid in ${Math.max(0, Math.ceil(this.raidTimer))}s`);
+      const wave = Math.max(1, this.save.stats.raidsFaced + 1);
+      this.callbacks.raid(`WAVE ${wave} · RAID IN ${Math.max(0, Math.ceil(this.raidTimer))}s`);
       if (this.raidTimer <= 0) this.startRaid();
     } else if (this.raidState === 'active') {
       const raidersAlive = this.enemies.some(enemy => enemy.isRaid && enemy.alive);
       if (!this.raidBreached && this.gateHealth <= 0) this.beginRaidBreach();
       if (!raidersAlive) this.finishRaid(!this.raidBreached);
-      this.updateGuard(dt);
       if (this.raidState === 'active') {
         this.callbacks.raid(this.raidBreached
-          ? `PANTRY BREACH · BANK $${this.save.cash} · LOST $${this.raidCashLost} · Eliminate the pack!`
-          : `GATE ${Math.ceil(this.gateHealth)} / ${gateHealthFor(this.save.upgrades.defense)} · Repel the surge`);
+          ? `WAVE ${this.raidWave} · PANTRY BREACH · BANK $${this.save.cash} · LOST $${this.raidCashLost}`
+          : `WAVE ${this.raidWave} · ${this.enemies.filter(enemy => enemy.isRaid && enemy.alive).length} RAIDERS · GATE ${Math.ceil(this.gateHealth)} / ${this.gateMaxHealth()}`);
       }
     } else if (this.raidState === 'cooldown' && this.raidTimer <= 0) {
       this.raidState = 'idle';
@@ -2654,19 +2858,28 @@ export class Game {
 
   private startRaid(): void {
     this.raidState = 'active';
-    this.gateHealth = gateHealthFor(this.save.upgrades.defense);
+    this.save.stats.raidsFaced += 1;
+    this.raidWave = this.save.stats.raidsFaced;
+    const profile = raidProfileFor(this.raidWave);
+    this.gateHealth = this.gateMaxHealth();
     this.raidBreached = false;
     this.raidCashLost = 0;
     this.raidBankEmptyShown = false;
-    const count = 4 + Math.min(3, this.save.stats.raidsWon);
-    for (let index = 0; index < count; index += 1) {
+    for (let index = 0; index < profile.count; index += 1) {
       const spawn = this.raidTrailPoint(index);
       const enemy = this.createEnemy('raider', spawn.x, spawn.y, true);
+      enemy.config = {
+        ...enemy.config,
+        health: Math.round(enemy.config.health * profile.healthMultiplier),
+        damage: Math.round(enemy.config.damage * profile.damageMultiplier),
+        speed: Math.round(enemy.config.speed * profile.speedMultiplier)
+      };
+      enemy.health = enemy.config.health;
       enemy.state = 'raid';
       this.enemies.push(enemy);
     }
     this.save.unlocks.raidSeen = true;
-    this.callbacks.raid('FROSTWILD SURGE · Defend the east gate!');
+    this.callbacks.raid(`WAVE ${profile.wave}: RAID · ${profile.count} Rimebacks · Defend the gate!`);
     this.audio.play('gate');
     this.camera.shake = this.save.settings.reducedMotion ? 0 : 14;
     this.requestSave();
@@ -2691,11 +2904,17 @@ export class Game {
   }
 
   private updateGuard(dt: number): void {
-    const tier = defenseTierFor(this.save.upgrades.defense);
-    for (const post of this.defenders) {
+    for (let index = 0; index < this.defenders.length; index += 1) {
+      const post = this.defenders[index]!;
+      if (post.mobile) {
+        const phase = this.simulationTime * (.34 + (index % 3) * .035) + index * 1.7;
+        post.x = post.home.x + Math.cos(phase) * 90;
+        post.y = post.home.y + Math.sin(phase * .83) * 70;
+        this.place(post.container, post.x, post.y, 35);
+      }
       post.cooldown = Math.max(0, post.cooldown - dt);
       let target: EnemyEntity | null = null;
-      let best = tier.range ** 2;
+      let best = post.range ** 2;
       for (const enemy of this.enemies) {
         if (!enemy.isRaid || !enemy.alive || enemy.state === 'defeat') continue;
         const distance = distanceSquared(enemy.x, enemy.y, post.x, post.y);
@@ -2708,19 +2927,19 @@ export class Game {
       const toY = isoY(target.x, target.y) - 25;
       post.aim.rotation = Math.atan2(toY - fromY, toX - fromX);
       if (post.cooldown > 0) continue;
-      post.cooldown = tier.cadence;
+      post.cooldown = post.cadence;
       post.lastShot = this.simulationTime;
       this.defenseShots += 1;
       const shot = this.particlePool.acquire();
-      shot.moveTo(-12, 0).lineTo(10, 0).stroke({ color: tier.kind === 'turret' ? 0xffc36b : 0xf7edd0, width: tier.kind === 'turret' ? 4 : 2 });
-      if (tier.kind !== 'turret') shot.moveTo(5, -4).lineTo(13, 0).lineTo(5, 4).stroke({ color: 0xe7fcff, width: 2 });
+      shot.moveTo(-12, 0).lineTo(10, 0).stroke({ color: post.projectile === 'turret' ? 0xffc36b : 0xf7edd0, width: post.projectile === 'turret' ? 4 : 2 });
+      if (post.projectile !== 'turret') shot.moveTo(5, -4).lineTo(13, 0).lineTo(5, 4).stroke({ color: 0xe7fcff, width: 2 });
       shot.position.set(fromX, fromY);
       shot.rotation = post.aim.rotation;
       shot.zIndex = depth(post.x, post.y, 320);
       this.effects.addChild(shot);
-      const duration = tier.kind === 'turret' ? .07 : .16;
+      const duration = post.projectile === 'turret' ? .07 : .16;
       this.particles.push({ graphic: shot, x: fromX, y: fromY, vx: (toX - fromX) / duration, vy: (toY - fromY) / duration, life: duration, maxLife: duration, worldSpace: true });
-      this.damageEnemy(target, tier.damage, true);
+      this.damageEnemy(target, post.damage, true);
     }
   }
 
@@ -2731,13 +2950,13 @@ export class Game {
     }
     this.raidState = 'cooldown';
     this.raidTimer = ECONOMY.raidCooldown;
-    this.gateHealth = gateHealthFor(this.save.upgrades.defense);
+    this.gateHealth = this.gateMaxHealth();
     this.callbacks.raid(null);
     if (heldAtGate) {
       this.save.stats.raidsWon += 1;
-      const reward = 34 + this.save.stats.raidsWon * 8;
+      const reward = raidProfileFor(this.raidWave).reward;
       for (let index = 0; index < 4; index += 1) this.createCashDrop(Math.floor(reward / 4) + (index < reward % 4 ? 1 : 0));
-      this.callbacks.toast(`Surge repelled · $${reward} defense bonus waiting`);
+      this.callbacks.toast(`Wave ${this.raidWave} repelled · $${reward} defense bonus waiting`);
       this.audio.play('upgrade');
     } else {
       this.callbacks.toast(cashLost > 0
@@ -3303,7 +3522,7 @@ export class Game {
       this.station.mealPile.tint = 0xffffff;
     }
     this.drawProgressRing(this.station.dockProgress, this.fishCatchProgress, 0x8af4ea, 37);
-    const gateMax = gateHealthFor(this.save.upgrades.defense);
+    const gateMax = this.gateMaxHealth();
     const gateRatio = clamp(this.gateHealth / gateMax, 0, 1);
     const gateColor = gateRatio <= .42 ? BRAND.colors.danger : gateRatio <= .7 ? 0xf18454 : 0xffaf62;
     const gateKey = `${Math.round(this.gateHealth)}|${gateMax}|${gateColor}|${this.raidBreached}`;
@@ -3377,7 +3596,7 @@ export class Game {
   private checkPadUnlocks(): void {
     const stats = this.save.stats;
     const levels = UPGRADES.reduce((sum, config) => sum + this.save.upgrades[config.id], 0);
-    const signature = `${stats.mealsSold}|${stats.bearsDefeated}|${stats.deaths}|${this.save.unlocks.zone2}|${this.save.unlocks.raidSeen}|${levels}`;
+    const signature = `${stats.mealsSold}|${stats.bearsDefeated}|${stats.deaths}|${stats.raidsWon}|${this.save.unlocks.zone2}|${this.save.unlocks.dock}|${this.save.unlocks.glacier}|${this.save.unlocks.whiteout}|${this.save.unlocks.raidSeen}|${levels}`;
     if (signature === this.padGateSignature) return;
     const firstEvaluation = this.padGateSignature === '';
     this.padGateSignature = signature;
@@ -3469,12 +3688,21 @@ export class Game {
     this.station.whiteoutGate.visible = !this.save.unlocks.whiteout;
     this.station.southGate.visible = !this.save.unlocks.dock;
     this.refreshDefenses();
+    this.refreshCompoundVisuals();
+    this.refreshGateArmor();
     this.station.fishBuilding.visible = this.save.unlocks.dock;
     this.station.fishDropZone.visible = this.save.unlocks.dock;
     this.station.fishOutput.visible = this.save.unlocks.dock;
     this.station.fishProgress.visible = this.save.unlocks.dock;
     this.station.fishStock.visible = this.save.unlocks.dock;
     this.station.dockProgress.visible = this.save.unlocks.dock;
+    this.fisherVisuals.forEach((fisher, index) => { fisher.visible = this.save.unlocks.dock && index < this.save.upgrades.fisher; });
+    this.oreRigBuilding.visible = this.save.unlocks.glacier;
+    this.oreRigBuilding.alpha = this.save.upgrades.oreRig > 0 ? 1 : .46;
+    this.oreCashZone.visible = this.save.unlocks.glacier && this.save.upgrades.oreRig > 0;
+    this.robotFoundry.visible = this.save.unlocks.whiteout;
+    this.robotFoundry.alpha = this.save.upgrades.robots > 0 ? 1 : .46;
+    this.robotVisuals.forEach((robot, index) => { robot.visible = this.save.unlocks.whiteout && index < this.save.upgrades.robots * 2; });
     for (const child of this.world.children) {
       if (child instanceof Container && child !== this.player.container && child.label === 'dock-visual') child.visible = this.save.unlocks.dock;
     }

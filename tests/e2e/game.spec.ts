@@ -12,7 +12,7 @@ declare global {
         cashDrops: number;
         cashLoot: Array<{ x: number; y: number; value: number }>;
         rawLoot: Array<{ x: number; y: number; amount: number }>;
-        defense: { level: number; kind: string; posts: number; shots: number };
+        defense: { level: number; kind: string; posts: number; warriors: number; shots: number };
         cargoAnchor: { x: number; y: number; bottom: number };
         customers: number;
         customerDemand: number;
@@ -22,6 +22,7 @@ declare global {
         upgrades: Record<string, number>;
         unlocks: { zone2: boolean; dock: boolean; glacier: boolean; whiteout: boolean; raidSeen: boolean };
         raidState: string;
+        raidWave: number;
         raidBreached: boolean;
         raidCashLost: number;
         gateHealth: number;
@@ -169,6 +170,36 @@ test('compact defense pad advances through defenders and raid loot stays collect
   await page.waitForTimeout(400);
   expect(await page.evaluate(() => window.__EMBERWAKE__.getState().cargoAnchor.bottom)).toBeLessThan(-60);
   await page.screenshot({ path: 'test-results/three-backpack-stacks.png' });
+});
+
+test('late districts operate businesses and numbered raid waves scale', async ({ page, browserName, isMobile }) => {
+  test.skip(isMobile || browserName !== 'chromium', 'exercise the expanded economy once');
+  test.setTimeout(40_000);
+  await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
+    version: 6, updatedAt: Date.now(), trailwardenName: 'Northstar', cash: 0,
+    upgrades: { defense: 3, gateArmor: 2, compound: 3, warriors: 2, fishery: 3, fisher: 2, oreRig: 2, robots: 2 },
+    unlocks: { zone2: true, dock: true, glacier: true, whiteout: true, raidSeen: true },
+    station: {}, tutorial: 'complete', stats: { raidsFaced: 4, raidsWon: 3 }
+  })));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  const initial = await page.evaluate(() => window.__EMBERWAKE__.getState());
+  expect(initial.defense.warriors).toBe(4);
+  expect(initial.gateHealth).toBe(1150);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(1450, 1050));
+  await page.waitForTimeout(1_800);
+  await page.screenshot({ path: 'test-results/expanded-compound.png' });
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().station.rawFish), { timeout: 12_000 }).toBeGreaterThan(0);
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().cashLoot.some(drop => Math.hypot(drop.x - 5200, drop.y - 2470) < 150)), { timeout: 15_000 }).toBe(true);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(7280, 4040));
+  await page.waitForTimeout(2_600);
+  await page.screenshot({ path: 'test-results/whiteout-robot-foundry.png' });
+  const raid = await page.evaluate(() => {
+    window.__EMBERWAKE__.triggerRaid();
+    return window.__EMBERWAKE__.getState();
+  });
+  expect(raid.raidWave).toBe(5);
+  expect(raid.enemies.filter(enemy => enemy.isRaid).length).toBe(10);
 });
 
 test('the real first launch shows the loading ritual and stores the Trailwarden name', async ({ page, browserName, isMobile }) => {

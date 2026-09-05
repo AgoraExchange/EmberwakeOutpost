@@ -56,7 +56,14 @@ export const UPGRADE_CATEGORY: Record<UpgradeId, UpgradeCategory> = {
   counterCapacity: 'hospitality',
   customerFlow: 'hospitality',
   saleValue: 'hospitality',
-  defense: 'defense'
+  defense: 'defense',
+  gateArmor: 'defense',
+  compound: 'defense',
+  warriors: 'defense',
+  fishery: 'production',
+  fisher: 'production',
+  oreRig: 'production',
+  robots: 'production'
 };
 
 export const WORLD = {
@@ -170,6 +177,13 @@ export const UPGRADES: UpgradeConfig[] = [
   { id: 'saleValue', label: 'Recipes', icon: '◆', description: 'Better meal value', baseCost: 76, costScale: 1.84, maxLevel: 6, effectText: l => `$${4 + l * 2} / meal` },
   { id: 'worker', label: 'Cook', icon: '♟', description: 'Hire a cook to carry meals to villagers; upgrade for faster four-meal deliveries', baseCost: 108, costScale: 2.25, maxLevel: 2, effectText: l => l === 0 ? 'Manual meal delivery' : l === 1 ? 'Cook delivers 2 meals per trip' : 'Fast cook delivers 4 meals per trip' },
   { id: 'defense', label: 'Defense', icon: '⌾', description: 'Spear guards → archer towers → automatic turrets', baseCost: 96, costScale: 1.92, maxLevel: 5, effectText: l => `${defenseTierFor(l).name} · ${220 + l * 70} gate HP`, iconForLevel: l => l < 1 ? '⚔' : l < 3 ? '➶' : '⌾' },
+  { id: 'gateArmor', label: 'Gate Armor', icon: '▥', description: 'Reinforce every gate with iron, braces, and Ember plating', baseCost: 180, costScale: 2.05, maxLevel: 5, effectText: l => `${l === 0 ? 'Timber' : l < 3 ? 'Iron-braced' : 'Ember-plated'} gates · +${l * 180} HP` },
+  { id: 'compound', label: 'Compound', icon: '▰', description: 'Fortify the core, claim shoreline and eastern annexes', baseCost: 240, costScale: 2.15, maxLevel: 3, effectText: l => ['Core palisade', 'Reinforced core', 'Shoreline annex', 'Eastern stronghold'][Math.min(3, l)]! },
+  { id: 'warriors', label: 'Warriors', icon: '♜', description: 'Recruit roaming wardens who patrol and fight raid packs', baseCost: 210, costScale: 2.1, maxLevel: 4, effectText: l => l === 0 ? 'No patrol' : `${l * 2} roaming wardens · ${12 + l * 4} damage` },
+  { id: 'fishery', label: 'Fishery', icon: '≈', description: 'Faster catches, faster smokehouse, and larger catches', baseCost: 160, costScale: 1.9, maxLevel: 5, effectText: l => `${Math.max(1.1, 3.2 / (1 + l * .25)).toFixed(1)}s catch · ${1 + Math.floor(l / 3)} fish` },
+  { id: 'fisher', label: 'Fisher Crew', icon: '⚓', description: 'Hire fishers who keep the smokehouse supplied', baseCost: 260, costScale: 2.05, maxLevel: 3, effectText: l => l === 0 ? 'Manual fishing' : `${l} fishers · auto-catch every ${Math.max(2.4, 7.2 - l * 1.3).toFixed(1)}s` },
+  { id: 'oreRig', label: 'Salvage Rig', icon: '⛏', description: 'Extract valuable Ember ore in Glacier Reach', baseCost: 700, costScale: 2.1, maxLevel: 5, effectText: l => l === 0 ? 'No extraction' : `$${12 + l * 8} ore crates · powered rig ${l}` },
+  { id: 'robots', label: 'Robot Foundry', icon: '⚙', description: 'Build utility robots that accelerate remote industry', baseCost: 1800, costScale: 2.2, maxLevel: 3, effectText: l => l === 0 ? 'No robots' : `${l * 2} utility robots · faster salvage` },
   { id: 'furnace', label: 'Furnace', icon: '♨', description: 'Expand warm safety', baseCost: 102, costScale: 1.88, maxLevel: 5, effectText: l => `${265 + l * 40} warm radius` },
   { id: 'infirmary', label: 'Infirmary', icon: '+', description: 'Faster healing and respawn', baseCost: 84, costScale: 1.85, maxLevel: 4, effectText: l => `${4 + l * 2} HP/s · ${Math.max(0.85, 2 - l * 0.28).toFixed(1)}s respawn` }
 ];
@@ -205,6 +219,13 @@ export const UPGRADE_GATES: Partial<Record<UpgradeId, UpgradeGate>> = {
   infirmary: { hint: 'Buy 2 upgrades', met: save => totalUpgrades(save) >= 2 || save.stats.deaths >= 1 },
   // The Armory has its own permanent plate in the gate yard and is open from the start.
   furnace: { hint: 'Open the Eastern Frontier', met: save => save.unlocks.zone2 },
+  gateArmor: { hint: 'Face the first raid', met: save => save.unlocks.raidSeen },
+  compound: { hint: 'Open the Eastern Frontier', met: save => save.unlocks.zone2 },
+  warriors: { hint: 'Defend one raid', met: save => save.stats.raidsWon >= 1 },
+  fishery: { hint: 'Thaw the shoreline', met: save => save.unlocks.dock },
+  fisher: { hint: 'Thaw the shoreline', met: save => save.unlocks.dock },
+  oreRig: { hint: 'Open Glacier Reach', met: save => save.unlocks.glacier },
+  robots: { hint: 'Open Whiteout Expanse', met: save => save.unlocks.whiteout },
 };
 
 export function isUpgradeAvailable(id: UpgradeId, save: SaveData): boolean {
