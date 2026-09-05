@@ -4,6 +4,12 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.7.0 — Frostfin meal runners
+
+- Hired meal runners now monitor both Cookout meals and ready frostfin plates, prioritize waiting fish orders, and walk through the shoreline gate to collect smokehouse food.
+- The runner visibly carries blue frostfin plates back to the Mess Hall, serves waiting villagers, and creates the normal collectible cash drops.
+- Ready frostfin also enters the existing offline serving pipeline, with its higher meal value saved to the strongbox while the player is away.
+
 ## 1.6.1 — Compact lumber stand
 
 - The roofed lumber shed is replaced by one smaller open stand with three divided sections holding 100 logs each.
@@ -58,7 +64,7 @@ The game has no backend, accounts, tracking, ads, remote APIs, or paid services.
 - Each slain bear drops raw meat and collectible $6 cash, including kills made by compound defenders. Raid meat remains for five minutes; the successful defense bonus is paid separately in collectible cash.
 - Raw food, cooked meals, and timber share the same backpack-height base, including when all three stacks are carried.
 - The green furnace circle heals living players at 4 HP per second, capped at maximum health. Each Infirmary level adds 2 HP per second and still shortens respawn time. Leaving the circle or pausing stops healing.
-- Unfinished cash and timber contributions persist across relaunches. Save schema v8 migrates earlier saves, retaining their names, upgrades, stock, settings, and currency.
+- Unfinished cash and timber contributions persist across relaunches. Save schema v9 migrates earlier saves, retaining their names, upgrades, stock, settings, and currency.
 - Stocked grills and unlocked smokehouses finish cooking while the app is closed or hidden, using at most eight hours of elapsed time. Existing ingredients limit production, and purchased workers can finish deliveries into saved collectible proceeds. Offline time never runs raids.
 - After onboarding, the objective card points to the next expansion or crew milestone.
 

@@ -43,7 +43,7 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.6.1';
+const APP_VERSION = '1.7.0';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 
@@ -290,7 +290,7 @@ async function bootstrap(): Promise<void> {
   currentSave = await loadSave();
   const away = finishOfflineCooking(currentSave);
   await saveProgress(currentSave);
-  if (away.meals + away.fishMeals + away.mealsSold + away.lumber + away.huntedMeat > 0) {
+  if (away.meals + away.fishMeals + away.mealsSold + away.fishMealsSold + away.lumber + away.huntedMeat > 0) {
     const report = requireElement('#away-report');
     const results = [away.meals + away.fishMeals > 0 ? `${away.meals + away.fishMeals} meals cooked` : '',
       away.cashEarned > 0 ? `$${away.cashEarned} ready to collect` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : '',

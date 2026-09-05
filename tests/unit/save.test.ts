@@ -7,10 +7,11 @@ describe('save migrations', () => {
     expect(migrateSave({ version: 5, upgrades: { worker: 1 }, station: { cookMeals: 2 } }).station.cookMeals).toBe(2);
     expect(migrateSave({ version: 5, station: {} }).station.cookMeals).toBe(0);
     expect(migrateSave({ version: 5, station: { cookMeals: -2 } }).station.cookMeals).toBe(0);
+    expect(migrateSave({ version: 8, station: { cookFishMeals: 3 } }).station.cookFishMeals).toBe(3);
   });
   it('creates a valid current save from invalid input', () => {
     const save = migrateSave(null);
-    expect(save.version).toBe(8);
+    expect(save.version).toBe(9);
     expect(save.cash).toBe(0);
     expect(save.upgrades.capacity).toBe(0);
   });
@@ -23,7 +24,7 @@ describe('save migrations', () => {
       zone2: true,
       settings: { haptics: false }
     });
-    expect(save.version).toBe(8);
+    expect(save.version).toBe(9);
     expect(save.cash).toBe(73);
     expect(save.upgrades.capacity).toBe(2);
     expect(save.unlocks.zone2).toBe(true);
@@ -40,7 +41,7 @@ describe('save migrations', () => {
 
   it('adds new expedition unlocks when a v2 save is migrated', () => {
     const save = migrateSave({ version: 2, cash: 41, unlocks: { zone2: true, dock: false, raidSeen: true } });
-    expect(save.version).toBe(8);
+    expect(save.version).toBe(9);
     expect(save.unlocks).toMatchObject({ zone2: true, dock: false, glacier: false, whiteout: false, raidSeen: true });
   });
 
@@ -50,7 +51,7 @@ describe('save migrations', () => {
 
   it('migrates v4 progress and validates unfinished contributions in v5', () => {
     const old = migrateSave({ version: 4, cash: 72, trailwardenName: 'Fox', upgrades: { weaponDamage: 2 } });
-    expect(old.version).toBe(8);
+    expect(old.version).toBe(9);
     expect(old.cash).toBe(72);
     expect(old.trailwardenName).toBe('Fox');
     expect(old.upgrades.weaponDamage).toBe(2);

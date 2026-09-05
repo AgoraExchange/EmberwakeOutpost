@@ -19,8 +19,8 @@ declare global {
         customers: number;
         customerDemand: number;
         waitingCustomers: number;
-        cook: { x: number; y: number; carrying: number; delivering: boolean };
-        station: { rawMeat: number; meals: number; rawFish: number; fishMeals: number; lumber: number; passiveCash: number };
+        cook: { x: number; y: number; carrying: number; carryingFish: number; delivering: boolean };
+        station: { cookMeals: number; cookFishMeals: number; rawMeat: number; meals: number; rawFish: number; fishMeals: number; lumber: number; passiveCash: number };
         upgrades: Record<string, number>;
         unlocks: { zone2: boolean; dock: boolean; glacier: boolean; whiteout: boolean; raidSeen: boolean };
         raidState: string;
@@ -174,6 +174,29 @@ test('eight guests queue and the hired cook delivers meals without banking cash'
   await page.evaluate(() => window.__EMBERWAKE__.teleport(1460, 790));
   await page.waitForTimeout(500);
   await page.screenshot({ path: 'test-results/cookout-sign-archer.png' });
+});
+
+test('the hired meal runner collects frostfin plates and serves fish orders', async ({ page, browserName, isMobile }) => {
+  test.skip(isMobile || browserName !== 'chromium', 'exercise the full shoreline serving route once');
+  test.setTimeout(45_000);
+  await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
+    version: 9, updatedAt: Date.now(), trailwardenName: 'Frost Server', cash: 100,
+    upgrades: { worker: 2 },
+    unlocks: { zone2: true, dock: true, glacier: false, whiteout: false, raidSeen: false },
+    station: { fishMeals: 4 }, tutorial: 'complete'
+  })));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().cook.carryingFish), { timeout: 20_000 }).toBe(4);
+  const runner = await page.evaluate(() => window.__EMBERWAKE__.getState().cook);
+  await page.evaluate(point => window.__EMBERWAKE__.teleport(point.x - 180, point.y - 120), runner);
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: 'test-results/frostfin-meal-runner.png' });
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().customerDemand), { timeout: 25_000 }).toBe(0);
+  const served = await page.evaluate(() => window.__EMBERWAKE__.getState());
+  expect(served.station.fishMeals).toBe(0);
+  expect(served.station.cookFishMeals).toBe(0);
+  expect(served.cashLoot.reduce((sum, item) => sum + item.value, 0)).toBe(36);
 });
 
 test('large cash values fit their HUD cell', async ({ page }) => {

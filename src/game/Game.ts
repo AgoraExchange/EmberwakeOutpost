@@ -361,6 +361,7 @@ export class Game {
   private cookPosition = { x: 1360, y: 670 };
   private cookWaypoint = 0;
   private cookDelivering = false;
+  private cookSource: 'meat' | 'fish' = 'meat';
   private cookTray = new Graphics();
   private customerFishDemand = 0;
   private depositTimer = 0;
@@ -401,7 +402,8 @@ export class Game {
     this.raidWave = Math.max(1, save.stats.raidsFaced + 1);
     // Saved ready stock has no saved visitors, so recreate one order per plate.
     this.customerBearDemand = save.station.meals + save.station.cookMeals;
-    this.cookDelivering = save.station.cookMeals > 0;
+    this.cookSource = save.station.cookFishMeals > 0 ? 'fish' : 'meat';
+    this.cookDelivering = save.station.cookMeals + save.station.cookFishMeals > 0;
     this.customerFishDemand = save.station.fishMeals;
     this.particlePool = new Pool(() => new Graphics(), graphic => { graphic.clear(); graphic.removeFromParent(); }, 40);
     this.damagePool = new Pool(() => worldText('', 25, 0xffffff, '800'), text => { text.text = ''; text.removeFromParent(); }, 14);
@@ -497,7 +499,8 @@ export class Game {
       customers: this.customers.length,
       customerDemand: this.customerBearDemand + this.customerFishDemand,
       waitingCustomers: this.customers.filter(customer => customer.entered && (customer.state === 'arriving' || customer.state === 'waiting')).length,
-      cook: { ...this.cookPosition, carrying: this.save.station.cookMeals, delivering: this.cookDelivering },
+      cook: { ...this.cookPosition, carrying: this.save.station.cookMeals + this.save.station.cookFishMeals,
+        carryingFish: this.save.station.cookFishMeals, delivering: this.cookDelivering },
       station: { ...this.save.station },
       upgrades: { ...this.save.upgrades },
       unlocks: { ...this.save.unlocks },
@@ -555,16 +558,18 @@ export class Game {
       if (!this.paused) this.app.start();
       const away = finishOfflineCooking(this.save);
       this.customerBearDemand = Math.max(0, this.customerBearDemand + away.demandDelta);
-      this.customerFishDemand += away.fishMeals;
-      let completedOrders = away.mealsSold;
-      for (let index = this.customers.length - 1; index >= 0 && completedOrders > 0; index -= 1) {
+      this.customerFishDemand = Math.max(0, this.customerFishDemand + away.fishMeals - away.fishMealsSold);
+      let completedBearOrders = away.mealsSold;
+      let completedFishOrders = away.fishMealsSold;
+      for (let index = this.customers.length - 1; index >= 0 && completedBearOrders + completedFishOrders > 0; index -= 1) {
         const customer = this.customers[index]!;
-        if (customer.wantsFish) continue;
+        if (customer.wantsFish ? completedFishOrders <= 0 : completedBearOrders <= 0) continue;
         customer.container.destroy({ children: true });
         this.customers.splice(index, 1);
-        completedOrders -= 1;
+        if (customer.wantsFish) completedFishOrders -= 1;
+        else completedBearOrders -= 1;
       }
-      if (away.meals + away.fishMeals + away.mealsSold + away.lumber + away.huntedMeat > 0) {
+      if (away.meals + away.fishMeals + away.mealsSold + away.fishMealsSold + away.lumber + away.huntedMeat > 0) {
         const results = [away.meals + away.fishMeals > 0 ? `${away.meals + away.fishMeals} cooked` : '',
           away.cashEarned > 0 ? `$${away.cashEarned} waiting` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : '',
           away.huntedMeat > 0 ? `${away.huntedMeat} meat hunted` : ''].filter(Boolean).join(' · ');
@@ -2725,25 +2730,54 @@ export class Game {
   private updateCook(dt: number): void {
     const level = this.save.upgrades.worker;
     if (level <= 0) return;
-    const outbound = [{ x: 1360, y: 780 }, { x: 900, y: 780 }, { x: 760, y: 700 }];
-    const inbound = [{ x: 900, y: 780 }, { x: 1360, y: 780 }, WORLD.butcherOutput];
-    if (this.cookDelivering && this.save.station.cookMeals === 0) {
+    const routes = {
+      meat: {
+        source: WORLD.butcherOutput,
+        outbound: [{ x: 1360, y: 780 }, { x: 900, y: 780 }, { x: 760, y: 700 }],
+        inbound: [{ x: 900, y: 780 }, { x: 1360, y: 780 }, WORLD.butcherOutput]
+      },
+      fish: {
+        source: WORLD.fishCounter,
+        // Use the shoreline gate instead of cutting through the south palisade.
+        outbound: [{ x: 1120, y: 1530 }, { x: 1010, y: 1370 }, { x: 900, y: 980 }, { x: 760, y: 700 }],
+        inbound: [{ x: 900, y: 980 }, { x: 1010, y: 1370 }, { x: 1120, y: 1530 }, WORLD.fishCounter]
+      }
+    } as const;
+    const carried = () => this.save.station.cookMeals + this.save.station.cookFishMeals;
+    if (this.cookDelivering && carried() === 0) {
       this.cookDelivering = false;
       this.cookWaypoint = 0;
     }
-    // At the output, take real meals out of stock. The carried batch is saved so
-    // quitting during a delivery neither loses food nor duplicates it on return.
-    if (!this.cookDelivering && Math.hypot(this.cookPosition.x - WORLD.butcherOutput.x, this.cookPosition.y - WORLD.butcherOutput.y) < 5) {
-      this.cookWaypoint = 3;
-      if (this.save.station.meals > 0) {
-        this.save.station.cookMeals = Math.min(level * 2, this.save.station.meals);
-        this.save.station.meals -= this.save.station.cookMeals;
+
+    if (!this.cookDelivering) {
+      const meatReady = this.save.station.meals > 0;
+      const fishReady = this.save.unlocks.dock && this.save.station.fishMeals > 0;
+      const preferred: 'meat' | 'fish' | null = fishReady && (this.customerFishDemand > 0 || !meatReady)
+        ? 'fish' : meatReady ? 'meat' : fishReady ? 'fish' : null;
+      if (preferred && preferred !== this.cookSource) {
+        this.cookSource = preferred;
+        this.cookWaypoint = 0;
+      }
+      const source = routes[this.cookSource].source;
+      if (preferred && Math.hypot(this.cookPosition.x - source.x, this.cookPosition.y - source.y) < 5) {
+        const batch = level * 2;
+        if (this.cookSource === 'fish') {
+          this.save.station.cookFishMeals = Math.min(batch, this.save.station.fishMeals);
+          this.save.station.fishMeals -= this.save.station.cookFishMeals;
+        } else {
+          this.save.station.cookMeals = Math.min(batch, this.save.station.meals);
+          this.save.station.meals -= this.save.station.cookMeals;
+        }
         this.cookDelivering = true;
         this.cookWaypoint = 0;
         this.requestSave();
       }
     }
-    const target = (this.cookDelivering ? outbound : inbound)[this.cookWaypoint];
+
+    const route = routes[this.cookSource];
+    const hasPickup = this.cookSource === 'fish' ? this.save.station.fishMeals > 0 : this.save.station.meals > 0;
+    const target = this.cookDelivering ? route.outbound[this.cookWaypoint]
+      : hasPickup ? route.inbound[this.cookWaypoint] : undefined;
     const visual = this.station.workerVisuals[1]!;
     if (target) {
       const direction = normalize(target.x - this.cookPosition.x, target.y - this.cookPosition.y);
@@ -2754,13 +2788,14 @@ export class Game {
       if (direction.magnitude < 5) this.cookWaypoint += 1;
     }
     this.place(visual, this.cookPosition.x, this.cookPosition.y, 35);
-    const key = `${this.save.station.cookMeals}`;
+    const key = `${this.save.station.cookMeals}|${this.save.station.cookFishMeals}`;
     if (this.cookTray.label !== key) {
       this.cookTray.label = key;
       this.cookTray.clear();
-      for (let i = 0; i < this.save.station.cookMeals; i += 1) {
+      for (let i = 0; i < carried(); i += 1) {
         this.cookTray.ellipse(28, -50 - i * 9, 17, 5).fill(0xfff0cf).stroke({ color: 0xd8a75b, width: 2 });
-        this.cookTray.ellipse(28, -52 - i * 9, 10, 3).fill(BRAND.colors.ember);
+        this.cookTray.ellipse(28, -52 - i * 9, 10, 3)
+          .fill(this.save.station.cookFishMeals > 0 ? BRAND.colors.fish : BRAND.colors.ember);
       }
     }
   }
@@ -2835,8 +2870,10 @@ export class Game {
       if (Math.hypot(customer.x - slotX, customer.y - slotY) < 5) customer.state = queueIndex === 0 ? 'waiting' : 'arriving';
       // Nobody gets fed unless the Trailwarden is behind the counter working the line.
       if (queueIndex === 0 && customer.state === 'waiting' && this.isPlayerServing()) this.tryServeCustomer(customer);
-      if (queueIndex === 0 && customer.state === 'waiting' && this.save.station.cookMeals > 0
-        && this.save.upgrades.worker > 0 && this.cookDelivering && this.cookWaypoint >= 3) this.tryServeCustomer(customer, true);
+      if (queueIndex === 0 && customer.state === 'waiting'
+        && this.save.station.cookMeals + this.save.station.cookFishMeals > 0
+        && this.save.upgrades.worker > 0 && this.cookDelivering
+        && Math.hypot(this.cookPosition.x - 760, this.cookPosition.y - 700) < 12) this.tryServeCustomer(customer, true);
     }
 
     for (let index = this.customers.length - 1; index >= 0; index -= 1) {
@@ -2924,8 +2961,11 @@ export class Game {
   private tryServeCustomer(customer: CustomerEntity, servedByCook = false): void {
     // The bubble is a preference, never a queue deadlock. A guest takes the other
     // cooked plate if their preferred dish is unavailable, so batches always clear.
-    const servingFish = !servedByCook && this.player.fishMeals > 0 && (customer.wantsFish || this.player.meals <= 0);
-    const carried = servedByCook ? this.save.station.cookMeals : servingFish ? this.player.fishMeals : this.player.meals;
+    const servingFish = servedByCook ? this.save.station.cookFishMeals > 0
+      : this.player.fishMeals > 0 && (customer.wantsFish || this.player.meals <= 0);
+    const carried = servedByCook
+      ? servingFish ? this.save.station.cookFishMeals : this.save.station.cookMeals
+      : servingFish ? this.player.fishMeals : this.player.meals;
     if (carried <= 0) {
       // Nothing to hand over — the guest keeps waiting and keeps showing what they want.
       customer.bubble.visible = true;
@@ -2937,7 +2977,8 @@ export class Game {
       : mealValueFor(this.save.upgrades.saleValue);
     const result = purchaseMeal(carried, unit);
     if (!result.sold) return;
-    if (servedByCook) this.save.station.cookMeals = result.ready;
+    if (servedByCook && servingFish) this.save.station.cookFishMeals = result.ready;
+    else if (servedByCook) this.save.station.cookMeals = result.ready;
     else if (servingFish) this.player.fishMeals = result.ready;
     else this.player.meals = result.ready;
     const server = servedByCook ? this.cookPosition : this.player;

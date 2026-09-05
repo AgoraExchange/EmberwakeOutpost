@@ -53,7 +53,7 @@ export function migrateSave(input: unknown): SaveData {
     return defaults;
   }
 
-  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6 && source.version !== 7 && source.version !== 8) return defaults;
+  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6 && source.version !== 7 && source.version !== 8 && source.version !== 9) return defaults;
   const next = structuredClone(defaults);
   next.updatedAt = finiteNumber(source.updatedAt, Date.now());
   next.trailwardenName = normalizeTrailwardenName(source.trailwardenName);
@@ -76,6 +76,7 @@ export function migrateSave(input: unknown): SaveData {
   }
   next.station = {
     cookMeals: Math.max(0, Math.min(4, Math.floor(finiteNumber(source.station?.cookMeals, 0)))),
+    cookFishMeals: Math.max(0, Math.min(4, Math.floor(finiteNumber(source.station?.cookFishMeals, 0)))),
     rawMeat: Math.max(0, Math.floor(finiteNumber(source.station?.rawMeat, 0))),
     meals: Math.max(0, Math.floor(finiteNumber(source.station?.meals, 0))),
     rawFish: Math.max(0, Math.floor(finiteNumber(source.station?.rawFish, 0))),

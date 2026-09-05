@@ -55,6 +55,8 @@ export interface Unlocks {
 
 export interface StationState {
   cookMeals: number;
+  /** Frostfin plates currently carried by the hired meal runner. */
+  cookFishMeals: number;
   rawMeat: number;
   meals: number;
   rawFish: number;

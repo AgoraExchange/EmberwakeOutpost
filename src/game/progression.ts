@@ -6,6 +6,7 @@ export interface OfflineReport {
   meals: number;
   fishMeals: number;
   mealsSold: number;
+  fishMealsSold: number;
   cashEarned: number;
   lumber: number;
   huntedMeat: number;
@@ -35,11 +36,13 @@ export function finishOfflineCooking(save: SaveData, now = Date.now()): OfflineR
     return { made, progress: made === possible ? 0 : work - made };
   }
   let mealsSold = 0;
+  let fishMealsSold = 0;
+  let deliveryUnits = 0;
   let meat: { made: number; progress: number };
   if (save.upgrades.worker > 0) {
     const batch = save.upgrades.worker * 2;
     const deliverySeconds = save.upgrades.worker === 1 ? 7 : 4.5;
-    const deliveryUnits = Math.floor(elapsed / deliverySeconds) * batch;
+    deliveryUnits = Math.floor(elapsed / deliverySeconds) * batch;
     const cookSeconds = butcherSecondsFor(save.upgrades.butcherSpeed, save.upgrades.worker);
     const work = save.station.butcherProgress + elapsed / cookSeconds;
     const productionRoom = Math.max(0, capacity - save.station.meals + Math.max(0, deliveryUnits - save.station.cookMeals));
@@ -62,9 +65,17 @@ export function finishOfflineCooking(save: SaveData, now = Date.now()): OfflineR
   save.station.rawFish -= fish.made;
   save.station.fishMeals += fish.made;
   save.station.fishProgress = fish.progress;
-  const cashEarned = mealsSold * mealValueFor(save.upgrades.saleValue);
+  if (save.upgrades.worker > 0 && deliveryUnits > mealsSold) {
+    const availableFish = save.station.cookFishMeals + save.station.fishMeals;
+    fishMealsSold = Math.min(availableFish, deliveryUnits - mealsSold);
+    const carriedSold = Math.min(save.station.cookFishMeals, fishMealsSold);
+    save.station.cookFishMeals -= carriedSold;
+    save.station.fishMeals -= fishMealsSold - carriedSold;
+  }
+  const cashEarned = mealsSold * mealValueFor(save.upgrades.saleValue)
+    + fishMealsSold * (ECONOMY.fishMealValue + save.upgrades.saleValue * 2);
   save.station.passiveCash += cashEarned;
-  save.stats.mealsSold += mealsSold;
+  save.stats.mealsSold += mealsSold + fishMealsSold;
 
   let lumber = 0;
   const lumberjack = save.upgrades.lumberjack;
@@ -75,5 +86,6 @@ export function finishOfflineCooking(save: SaveData, now = Date.now()): OfflineR
     save.station.lumber += lumber;
     save.station.lumberProgress = save.station.lumber >= 300 ? 0 : work - lumber;
   }
-  return { meals: meat.made, fishMeals: fish.made, mealsSold, cashEarned, lumber, huntedMeat, demandDelta: meat.made - mealsSold };
+  return { meals: meat.made, fishMeals: fish.made, mealsSold, fishMealsSold, cashEarned, lumber, huntedMeat,
+    demandDelta: meat.made - mealsSold };
 }

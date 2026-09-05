@@ -63,6 +63,20 @@ describe('stocked stations while away', () => {
     expect(save.cash).toBe(0);
   });
 
+  it('lets the hired runner sell ready frostfin plates while away', () => {
+    const save = createDefaultSave();
+    save.updatedAt = 0;
+    save.unlocks.dock = true;
+    save.upgrades.worker = 1;
+    save.upgrades.saleValue = 2;
+    save.station.fishMeals = 4;
+    const report = finishOfflineCooking(save, 70_000);
+    expect(report.fishMealsSold).toBe(4);
+    expect(report.cashEarned).toBe(4 * (9 + 4));
+    expect(save.station.fishMeals).toBe(0);
+    expect(save.station.passiveCash).toBe(52);
+  });
+
   it('fills three lumber piles while away and caps saved stock at 300', () => {
     const save = createDefaultSave();
     save.updatedAt = 0;
