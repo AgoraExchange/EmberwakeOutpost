@@ -43,7 +43,7 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.4.0';
+const APP_VERSION = '1.5.0';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 
@@ -225,6 +225,7 @@ function openOutpost(): void {
     ['Fortifications', `${UPGRADE_BY_ID.compound.effectText(save.upgrades.compound)} · ${UPGRADE_BY_ID.gateArmor.effectText(save.upgrades.gateArmor)}`, `${upgrade('compound')} · Gate: ${upgrade('gateArmor')}`],
     ['Raid readiness', `Next wave ${save.stats.raidsFaced + 1} · ${save.stats.raidsWon} victories`, save.unlocks.raidSeen ? upgrade('warriors') : 'First raid unlocks fortification options'],
     ['Lumber yard', `${save.station.lumber}/300 logs stacked · three 100-log piles`, save.unlocks.zone2 ? upgrade('lumberjack') : 'Open Eastern Frontier to hire lumberjacks'],
+    ['Hunter lodge', `${save.station.rawMeat} raw meat at the Cookout · ${UPGRADE_BY_ID.hunters.effectText(save.upgrades.hunters)}`, save.unlocks.zone2 ? upgrade('hunters') : 'Open Eastern Frontier to hire hunters'],
     ['Passive takings', `$${save.station.passiveCash.toLocaleString()} waiting at the strongbox`, save.upgrades.worker > 0 ? 'Stock the Cookout before leaving' : 'Hire the Cook to earn while away']
   ]);
   fill('#outpost-districts', [
@@ -289,10 +290,11 @@ async function bootstrap(): Promise<void> {
   currentSave = await loadSave();
   const away = finishOfflineCooking(currentSave);
   await saveProgress(currentSave);
-  if (away.meals + away.fishMeals + away.mealsSold + away.lumber > 0) {
+  if (away.meals + away.fishMeals + away.mealsSold + away.lumber + away.huntedMeat > 0) {
     const report = requireElement('#away-report');
     const results = [away.meals + away.fishMeals > 0 ? `${away.meals + away.fishMeals} meals cooked` : '',
-      away.cashEarned > 0 ? `$${away.cashEarned} ready to collect` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : ''].filter(Boolean);
+      away.cashEarned > 0 ? `$${away.cashEarned} ready to collect` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : '',
+      away.huntedMeat > 0 ? `${away.huntedMeat} meat hunted` : ''].filter(Boolean);
     report.textContent = `WELCOME BACK · ${results.join(' · ')}`;
     report.classList.remove('hidden');
   }

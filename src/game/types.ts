@@ -31,6 +31,7 @@ export type UpgradeId =
   | 'oreRig'
   | 'robots'
   | 'lumberjack'
+  | 'hunters'
   | 'furnace'
   | 'infirmary';
 
@@ -64,6 +65,7 @@ export interface StationState {
   oreProgress: number;
   lumber: number;
   lumberProgress: number;
+  hunterProgress: number;
   passiveCash: number;
 }
 

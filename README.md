@@ -4,6 +4,13 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.5.0 — Hunter crew supply chain
+
+- A dedicated Hunter Crew pad sits beside the Lumberjacks pad with a clear walking gap. It unlocks with the Eastern Frontier and recruits up to three visible spear hunters.
+- Hunters travel from the Cookout into the frontier and return timed raw-meat batches directly to the grill input. Upgrades increase the crew from one to three, shorten trips from 45 to 22 seconds, grow deliveries from two to four meat, and raise stocked-meat limits from 24 to 80.
+- Hunter production also advances for up to eight offline hours before cooking and meal delivery are calculated, allowing a fully upgraded hunting, cooking, serving, and collectible-cash chain to operate while away.
+- The lumber collection circle no longer shares its space with a rotating Tempo pad, so its three physical stacks and interaction prompt remain clear.
+
 ## 1.4.0 — Offline crews and collectible earnings
 
 - Closing, backgrounding, or hiding the app immediately writes a timestamped device save. Launch selects the newest valid snapshot from IndexedDB or the synchronous fallback, so a fast mobile close does not discard the last work state.
@@ -35,7 +42,7 @@ The game has no backend, accounts, tracking, ads, remote APIs, or paid services.
 - Each slain bear drops raw meat and collectible $6 cash, including kills made by compound defenders. Raid meat remains for five minutes; the successful defense bonus is paid separately in collectible cash.
 - Raw food, cooked meals, and timber share the same backpack-height base, including when all three stacks are carried.
 - The green furnace circle heals living players at 4 HP per second, capped at maximum health. Each Infirmary level adds 2 HP per second and still shortens respawn time. Leaving the circle or pausing stops healing.
-- Unfinished cash and timber contributions persist across relaunches. Save schema v7 migrates earlier saves, retaining their names, upgrades, stock, settings, and currency.
+- Unfinished cash and timber contributions persist across relaunches. Save schema v8 migrates earlier saves, retaining their names, upgrades, stock, settings, and currency.
 - Stocked grills and unlocked smokehouses finish cooking while the app is closed or hidden, using at most eight hours of elapsed time. Existing ingredients limit production, and purchased workers can finish deliveries into saved collectible proceeds. Offline time never runs raids.
 - After onboarding, the objective card points to the next expansion or crew milestone.
 
@@ -88,7 +95,7 @@ The vertical slice includes:
 
 - deterministic fixed-step movement, targeting, combat cadence, knockback, hit-stop, damage feedback, enemy finite-state behavior, death, protected respawn, and permanent loss of all carried cargo on defeat;
 - visible raw/cooked/timber backpack stacks, magnetic drops, provision storage, animated grill conversion, physical output piles, inventory-matched queues of eight villagers, hired meal delivery, physical cash, and real upgrade effects;
-- 24 upgrade lines covering combat, survival, carrying, production, customers, staffing, compound construction, gate armor, defenses, remote industry, heat, and recovery;
+- 25 upgrade lines covering combat, survival, carrying, production, customers, staffing, compound construction, gate armor, defenses, remote industry, heat, and recovery;
 - an eight-times-larger 9,600×6,200 ice world with Rime Trail, Icehorn Ridge, Glacier Reach, Whiteout Expanse, sequential passes, new forests, obstacles, and tougher enemies;
 - a repeatable telegraphed gate raid whose pack assembles off-camera, follows a staged route to the compound gate, and can be opposed by the guard; if the gate buckles, raiders enter the compound and destroy banked profit at the Cookout until the pack is eliminated;
 - a paid shoreline unlock, hold-to-catch frostfin dock, separate smokehouse conversion and pickup pile, fish-requesting guests, and higher-value fish plates;

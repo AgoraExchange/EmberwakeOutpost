@@ -53,7 +53,7 @@ export function migrateSave(input: unknown): SaveData {
     return defaults;
   }
 
-  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6 && source.version !== 7) return defaults;
+  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6 && source.version !== 7 && source.version !== 8) return defaults;
   const next = structuredClone(defaults);
   next.updatedAt = finiteNumber(source.updatedAt, Date.now());
   next.trailwardenName = normalizeTrailwardenName(source.trailwardenName);
@@ -86,6 +86,7 @@ export function migrateSave(input: unknown): SaveData {
     oreProgress: Math.max(0, finiteNumber(source.station?.oreProgress, 0)),
     lumber: Math.max(0, Math.min(300, Math.floor(finiteNumber(source.station?.lumber, 0)))),
     lumberProgress: Math.max(0, finiteNumber(source.station?.lumberProgress, 0)),
+    hunterProgress: Math.max(0, finiteNumber(source.station?.hunterProgress, 0)),
     passiveCash: Math.max(0, Math.floor(finiteNumber(source.station?.passiveCash, 0)))
   };
   next.tutorial = source.tutorial ?? defaults.tutorial;
@@ -173,7 +174,7 @@ export function importSave(text: string): SaveData {
   const parsed: unknown = JSON.parse(text);
   if (!parsed || typeof parsed !== 'object' || !('version' in parsed)) throw new Error('This file is not an Emberwake save.');
   const version = (parsed as { version?: unknown }).version;
-  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7) throw new Error('This save was created by an unsupported Emberwake version.');
+  if (version !== 1 && version !== 2 && version !== 3 && version !== 4 && version !== 5 && version !== 6 && version !== 7 && version !== 8) throw new Error('This save was created by an unsupported Emberwake version.');
   return migrateSave(parsed);
 }
 

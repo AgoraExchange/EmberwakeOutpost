@@ -1,6 +1,6 @@
 import { Application, Container, CullerPlugin, Graphics, Matrix, Rectangle, Text, Ticker, extensions } from 'pixi.js';
 import { AudioEngine } from './AudioEngine';
-import { BRAND, CATEGORY_COLORS, ECONOMY, ENEMIES, TIMBER, UPGRADE_CATEGORY, UPGRADES, UPGRADE_BY_ID, WEAPON_RANGED_TIER, WORLD, ZONES, defenseTierFor, isUpgradeAvailable } from './config';
+import { BRAND, CATEGORY_COLORS, ECONOMY, ENEMIES, TIMBER, UPGRADE_CATEGORY, UPGRADES, UPGRADE_BY_ID, WEAPON_RANGED_TIER, WORLD, ZONES, defenseTierFor, hunterTierFor, isUpgradeAvailable } from './config';
 import { createDefenseVisual } from './defenseVisuals';
 import { InputController } from './InputController';
 import { Pool } from './Pool';
@@ -230,6 +230,7 @@ const PAD_SLOTS: PadSlot[] = [
   { x: 4850, y: 2320, fixed: 'oreRig' },
   { x: 7060, y: 3970, fixed: 'robots' },
   { x: 1640, y: 1260, fixed: 'lumberjack' },
+  { x: 1560, y: 1340, fixed: 'hunters' },
   { x: 1080, y: 850, fixed: 'worker' },
   { x: 1250, y: 850, fixed: 'butcherSpeed' },
   // The rest form an upgrade row along the south of the hearth district.
@@ -296,6 +297,7 @@ export class Game {
   private readonly trees: TreeEntity[] = [];
   private readonly fisherVisuals: Container[] = [];
   private readonly lumberjackVisuals: Container[] = [];
+  private readonly hunterVisuals: Container[] = [];
   private readonly robotVisuals: Container[] = [];
   private oreRigBuilding!: Container;
   private robotFoundry!: Container;
@@ -547,9 +549,10 @@ export class Game {
         this.customers.splice(index, 1);
         completedOrders -= 1;
       }
-      if (away.meals + away.fishMeals + away.mealsSold + away.lumber > 0) {
+      if (away.meals + away.fishMeals + away.mealsSold + away.lumber + away.huntedMeat > 0) {
         const results = [away.meals + away.fishMeals > 0 ? `${away.meals + away.fishMeals} cooked` : '',
-          away.cashEarned > 0 ? `$${away.cashEarned} waiting` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : ''].filter(Boolean).join(' · ');
+          away.cashEarned > 0 ? `$${away.cashEarned} waiting` : '', away.lumber > 0 ? `${away.lumber} logs stacked` : '',
+          away.huntedMeat > 0 ? `${away.huntedMeat} meat hunted` : ''].filter(Boolean).join(' · ');
         this.callbacks.toast(`Welcome back · ${results}`);
       }
       this.requestSave();
@@ -834,6 +837,15 @@ export class Game {
       const worker = this.createCampWorker(1810 + index * 55, 1010 + index * 65, 0x8b633f);
       worker.label = 'lumberjack-crew';
       this.lumberjackVisuals.push(worker);
+    }
+    for (let index = 0; index < 3; index += 1) {
+      const hunter = this.createCampWorker(1880 + index * 55, 760 + index * 38, 0x536f4e);
+      hunter.label = 'hunter-crew';
+      const spear = new Graphics();
+      spear.moveTo(-15, -58).lineTo(19, 18).stroke({ color: 0x68462e, width: 4, cap: 'round' });
+      spear.moveTo(-19, -66).lineTo(-10, -56).lineTo(-20, -53).closePath().fill(0xc7d8dc).stroke({ color: BRAND.colors.outline, width: 1.5 });
+      hunter.addChild(spear);
+      this.hunterVisuals.push(hunter);
     }
 
     const fishStationBuilt = isoBuilding({ halfWidth: 80, halfDepth: 50, height: 90, wallColor: 0x406d78, roofColor: 0x54c8c5, art: 'building/smokehouse' });
@@ -2469,6 +2481,30 @@ export class Game {
       worker.scale.x = Math.cos(phase) < 0 ? -1 : 1;
       this.place(worker, x, y, 35);
     });
+
+    const hunter = hunterTierFor(this.save.upgrades.hunters);
+    if (hunter.crew > 0 && this.save.station.rawMeat < hunter.stockCap) {
+      this.save.station.hunterProgress += dt / hunter.interval;
+      if (this.save.station.hunterProgress >= 1) {
+        this.save.station.hunterProgress -= 1;
+        const delivered = Math.min(hunter.batch, hunter.stockCap - this.save.station.rawMeat);
+        this.save.station.rawMeat += delivered;
+        this.spawnGainLabel(WORLD.butcherInput.x, WORLD.butcherInput.y, `+${delivered} HUNTED MEAT`, BRAND.colors.meat, 68);
+        this.spawnBurst(WORLD.butcherInput.x, WORLD.butcherInput.y, BRAND.colors.meat, 7);
+        this.audio.play('deposit', .42);
+      }
+    } else if (hunter.crew === 0 || this.save.station.rawMeat >= hunter.stockCap) this.save.station.hunterProgress = 0;
+    this.hunterVisuals.forEach((worker, index) => {
+      const active = index < hunter.crew;
+      worker.visible = active;
+      if (!active) return;
+      const phase = (this.simulationTime / hunter.interval) * Math.PI * 2 + index * 1.45;
+      const t = (Math.sin(phase) + 1) / 2;
+      const x = WORLD.butcherInput.x + (2120 - WORLD.butcherInput.x) * t;
+      const y = WORLD.butcherInput.y + (720 - WORLD.butcherInput.y) * t + index * 24;
+      worker.scale.x = Math.cos(phase) < 0 ? -1 : 1;
+      this.place(worker, x, y, 36);
+    });
   }
 
   private updateCook(dt: number): void {
@@ -3802,6 +3838,7 @@ export class Game {
     this.robotFoundry.alpha = this.save.upgrades.robots > 0 ? 1 : .46;
     this.robotVisuals.forEach((robot, index) => { robot.visible = this.save.unlocks.whiteout && index < this.save.upgrades.robots * 2; });
     this.lumberjackVisuals.forEach((worker, index) => { worker.visible = index < this.save.upgrades.lumberjack; });
+    this.hunterVisuals.forEach((worker, index) => { worker.visible = index < this.save.upgrades.hunters; });
     for (const child of this.world.children) {
       if (child instanceof Container && child !== this.player.container && child.label === 'dock-visual') child.visible = this.save.unlocks.dock;
     }

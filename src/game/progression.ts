@@ -1,4 +1,4 @@
-import { ECONOMY } from './config';
+import { ECONOMY, hunterTierFor } from './config';
 import { butcherSecondsFor, clamp, counterCapacityFor, mealValueFor } from './rules';
 import type { SaveData } from './types';
 
@@ -8,6 +8,7 @@ export interface OfflineReport {
   mealsSold: number;
   cashEarned: number;
   lumber: number;
+  huntedMeat: number;
   demandDelta: number;
 }
 
@@ -16,6 +17,15 @@ export function finishOfflineCooking(save: SaveData, now = Date.now()): OfflineR
   const elapsed = clamp((now - save.updatedAt) / 1000, 0, 8 * 60 * 60);
   // Consume this interval even if the output shelf is full, preventing time banking.
   save.updatedAt = now;
+  let huntedMeat = 0;
+  const hunter = hunterTierFor(save.upgrades.hunters);
+  if (hunter.crew > 0 && save.station.rawMeat < hunter.stockCap) {
+    const work = save.station.hunterProgress + elapsed / hunter.interval;
+    const trips = Math.floor(work);
+    huntedMeat = Math.min(hunter.stockCap - save.station.rawMeat, trips * hunter.batch);
+    save.station.rawMeat += huntedMeat;
+    save.station.hunterProgress = save.station.rawMeat >= hunter.stockCap ? 0 : work - trips;
+  }
   const capacity = counterCapacityFor(save.upgrades.counterCapacity);
   function cook(raw: number, ready: number, progress: number, seconds: number) {
     const possible = Math.max(0, Math.min(raw, capacity - ready));
@@ -65,5 +75,5 @@ export function finishOfflineCooking(save: SaveData, now = Date.now()): OfflineR
     save.station.lumber += lumber;
     save.station.lumberProgress = save.station.lumber >= 300 ? 0 : work - lumber;
   }
-  return { meals: meat.made, fishMeals: fish.made, mealsSold, cashEarned, lumber, demandDelta: meat.made - mealsSold };
+  return { meals: meat.made, fishMeals: fish.made, mealsSold, cashEarned, lumber, huntedMeat, demandDelta: meat.made - mealsSold };
 }

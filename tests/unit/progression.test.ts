@@ -73,4 +73,24 @@ describe('stocked stations while away', () => {
     expect(finishOfflineCooking(save, 10_000_000).lumber).toBe(100);
     expect(save.station.lumber).toBe(300);
   });
+
+  it('lets upgraded hunters supply the full offline cook and delivery chain', () => {
+    const save = createDefaultSave();
+    save.updatedAt = 0;
+    save.upgrades.hunters = 1;
+    save.upgrades.worker = 1;
+    const report = finishOfflineCooking(save, 90_000);
+    expect(report.huntedMeat).toBe(4);
+    expect(report.mealsSold).toBe(4);
+    expect(save.station.rawMeat).toBe(0);
+    expect(save.station.passiveCash).toBe(16);
+
+    const capped = createDefaultSave();
+    capped.updatedAt = 0;
+    capped.upgrades.hunters = 3;
+    capped.station.rawMeat = 79;
+    capped.station.meals = 4;
+    expect(finishOfflineCooking(capped, 22_000).huntedMeat).toBe(1);
+    expect(capped.station.rawMeat).toBe(80);
+  });
 });

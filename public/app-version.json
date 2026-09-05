@@ -1,9 +1,9 @@
 {
-  "version": "1.4.0",
+  "version": "1.5.0",
   "releasedAt": "2026-09-05",
   "notes": [
-    "Hired meal runners now turn stocked Cookout meals into saved cash while the player is away.",
-    "Upgradeable lumberjacks fill three visible 100-log piles, online or offline, capped at 300 logs.",
-    "Close-safe timestamp saves and newest-snapshot recovery preserve passive earnings for up to eight hours."
+    "A buyable Hunter Crew makes timed frontier trips and delivers raw bear meat directly to the Cookout.",
+    "Three hunter upgrades add crew, larger hauls, faster trips, and higher Cookout meat stock limits.",
+    "Hunter production continues during offline time and feeds the existing cook and meal-delivery chain."
   ]
 }

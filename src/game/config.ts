@@ -64,7 +64,8 @@ export const UPGRADE_CATEGORY: Record<UpgradeId, UpgradeCategory> = {
   fisher: 'production',
   oreRig: 'production',
   robots: 'production',
-  lumberjack: 'production'
+  lumberjack: 'production',
+  hunters: 'production'
 };
 
 export const WORLD = {
@@ -163,6 +164,17 @@ export function defenseTierFor(level: number) {
   return DEFENSE_TIERS[Math.max(0, Math.min(DEFENSE_TIERS.length - 1, Math.floor(level)))]!;
 }
 
+export const HUNTER_TIERS = [
+  { crew: 0, batch: 0, interval: 0, stockCap: 0 },
+  { crew: 1, batch: 2, interval: 45, stockCap: 24 },
+  { crew: 2, batch: 3, interval: 32, stockCap: 48 },
+  { crew: 3, batch: 4, interval: 22, stockCap: 80 }
+] as const;
+
+export function hunterTierFor(level: number) {
+  return HUNTER_TIERS[Math.max(0, Math.min(HUNTER_TIERS.length - 1, Math.floor(level)))]!;
+}
+
 export const UPGRADES: UpgradeConfig[] = [
   { id: 'weaponDamage', label: 'Edge', icon: '✦', description: 'Sharper hits', baseCost: 26, costScale: 1.72, maxLevel: 8, effectText: l => `${8 + l * 3} damage` },
   { id: 'attackSpeed', label: 'Tempo', icon: '»', description: 'Faster attacks', baseCost: 42, costScale: 1.76, maxLevel: 6, effectText: l => `${(0.78 * Math.pow(0.9, l)).toFixed(2)}s cadence` },
@@ -186,6 +198,10 @@ export const UPGRADES: UpgradeConfig[] = [
   { id: 'oreRig', label: 'Salvage Rig', icon: '⛏', description: 'Extract valuable Ember ore in Glacier Reach', baseCost: 700, costScale: 2.1, maxLevel: 5, effectText: l => l === 0 ? 'No extraction' : `$${12 + l * 8} ore crates · powered rig ${l}` },
   { id: 'robots', label: 'Robot Foundry', icon: '⚙', description: 'Build utility robots that accelerate remote industry', baseCost: 1800, costScale: 2.2, maxLevel: 3, effectText: l => l === 0 ? 'No robots' : `${l * 2} utility robots · faster salvage` },
   { id: 'lumberjack', label: 'Lumberjacks', icon: '♣', description: 'Hire logging crews who fill three 100-log yard piles', baseCost: 320, costScale: 2.05, maxLevel: 3, effectText: l => l === 0 ? 'Manual logging' : `${l} lumberjacks · ${[0, 10, 7, 5][l]}s per log · 300 storage` },
+  { id: 'hunters', label: 'Hunter Crew', icon: '♠', description: 'Send hunters into the frontier to supply raw bear meat to the Cookout', baseCost: 420, costScale: 2.08, maxLevel: 3, effectText: l => {
+    const tier = hunterTierFor(l);
+    return l === 0 ? 'Manual hunting' : `${tier.crew} hunters · +${tier.batch} meat every ${tier.interval}s · ${tier.stockCap} stock`;
+  } },
   { id: 'furnace', label: 'Furnace', icon: '♨', description: 'Expand warm safety', baseCost: 102, costScale: 1.88, maxLevel: 5, effectText: l => `${265 + l * 40} warm radius` },
   { id: 'infirmary', label: 'Infirmary', icon: '+', description: 'Faster healing and respawn', baseCost: 84, costScale: 1.85, maxLevel: 4, effectText: l => `${4 + l * 2} HP/s · ${Math.max(0.85, 2 - l * 0.28).toFixed(1)}s respawn` }
 ];
@@ -229,6 +245,7 @@ export const UPGRADE_GATES: Partial<Record<UpgradeId, UpgradeGate>> = {
   oreRig: { hint: 'Open Glacier Reach', met: save => save.unlocks.glacier },
   robots: { hint: 'Open Whiteout Expanse', met: save => save.unlocks.whiteout },
   lumberjack: { hint: 'Open the Eastern Frontier', met: save => save.unlocks.zone2 },
+  hunters: { hint: 'Open the Eastern Frontier', met: save => save.unlocks.zone2 },
 };
 
 export function isUpgradeAvailable(id: UpgradeId, save: SaveData): boolean {

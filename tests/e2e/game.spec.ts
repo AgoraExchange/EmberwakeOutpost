@@ -66,14 +66,15 @@ test('slow rendering does not slow the game clock or advance paused time', async
 test('offline crews leave collectible cash and three-pile lumber stock', async ({ page, browserName, isMobile }) => {
   test.skip(isMobile || browserName !== 'chromium', 'exercise offline earnings once');
   await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
-    version: 7, updatedAt: Date.now() - 1_000_000, trailwardenName: 'Ember Fox', cash: 0,
-    upgrades: { worker: 1, saleValue: 2, lumberjack: 1 },
+    version: 8, updatedAt: Date.now() - 1_000_000, trailwardenName: 'Ember Fox', cash: 0,
+    upgrades: { worker: 1, saleValue: 2, lumberjack: 1, hunters: 1 },
     unlocks: { zone2: true, dock: false, glacier: false, whiteout: false, raidSeen: false },
     station: { rawMeat: 12 }, tutorial: 'complete'
   })));
   await page.goto('/');
   await expect(page.locator('#away-report')).toContainText('ready to collect');
   await expect(page.locator('#away-report')).toContainText('logs stacked');
+  await expect(page.locator('#away-report')).toContainText('meat hunted');
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
   const produced = await page.evaluate(() => window.__EMBERWAKE__.getState());
   expect(produced.station.passiveCash).toBeGreaterThan(0);
