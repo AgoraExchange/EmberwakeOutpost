@@ -105,10 +105,16 @@ test('lumberjacks fell real trees and the shoreline crew pad is reachable', asyn
   })));
   await page.goto('/');
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
-  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().lumberjacks.some(worker => worker.state === 'chopping')), { timeout: 20_000 }).toBe(true);
-  const target = await page.evaluate(() => window.__EMBERWAKE__.getState().lumberjacks.find(worker => worker.state === 'chopping')?.target);
-  expect(target).not.toBeNull();
-  await page.evaluate(point => window.__EMBERWAKE__.teleport(point!.x - 250, point!.y - 160), target);
+  const target = await page.evaluate(async () => {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+      const tree = window.__EMBERWAKE__.getState().lumberjacks.find(worker => worker.state === 'chopping')?.target;
+      if (tree) return tree;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    throw new Error('No lumberjack reached a tree');
+  });
+  await page.evaluate(point => window.__EMBERWAKE__.teleport(point.x - 250, point.y - 160), target);
   await page.waitForTimeout(500);
   await page.screenshot({ path: 'test-results/lumberjack-chopping-tree.png' });
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().station.lumber), { timeout: 25_000 }).toBe(300);
