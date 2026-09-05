@@ -4,6 +4,17 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.6.0 — Working crews and fortress firepower
+
+- Lumberjacks now walk through the compound gate, reserve an available frontier tree, visibly chop through its health, carry the tree's four-log stack home, and deposit it into the lumber yard. Multiple lumberjacks choose different trees.
+- The lumber yard is a roofed timber shed with braces, a saw station, snow treatment, and three framed stock bays. Every stored log is rendered, so 29 saved logs visibly appear as 29 logs instead of six compressed markers.
+- The Fisher Crew pad moved out of the lake collision barrier. The Glacier Salvage Rig has a drill tower, conveyor, powered tanks, ore machinery, and a forward upgrade pad that remains readable.
+- The Cookout and Timber Post boards are removed; compact live interaction labels and onboarding retain the core instructions without blocking the yard.
+- Raid kill cash starts at $6 and rises by $2 each wave to a recoverable $60 cap. Ordinary Rimebacks remain $6, Icehorns begin at $12, and Glacier/Whiteout wildlife gains health, damage, speed, and cash value.
+- The Armory continues after the Bolt gun through Sniper Rifle, .50 Sniper Rifle, SCAR Assault Rifle, and AK-47 Assault Rifle. The SCAR fires 26 rounds at four per second; the AK fires 36 rounds at five per second; both reload in two seconds.
+- Defense continues after the two Ember batteries: two low-profile road turrets are added and upgraded one at a time outside the east gate, ending with four advanced turrets in crossfire.
+- Roaming wardens have visible health, charge through the east gate during a raid, chase and fight Rimebacks outside, and can be attacked. Warrior upgrades raise their health from 125, movement speed, damage, range, and cadence; fallen wardens return for the next wave.
+
 ## 1.5.0 — Hunter crew supply chain
 
 - A dedicated Hunter Crew pad sits beside the Lumberjacks pad with a clear walking gap. It unlocks with the Eastern Frontier and recruits up to three visible spear hunters.

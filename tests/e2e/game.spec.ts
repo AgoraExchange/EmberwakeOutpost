@@ -5,14 +5,16 @@ declare global {
     __EMBERWAKE__: {
       getSave: () => { trailwardenName: string; contributions: Partial<Record<string, number>> };
       getState: () => {
-        player: { x: number; y: number; health: number; meat: number; fish: number; meals: number; fishMeals: number; wood: number; alive: boolean };
-        enemies: Array<{ kind: string; state: string; x: number; y: number; isRaid: boolean }>;
+        player: { x: number; y: number; health: number; meat: number; fish: number; meals: number; fishMeals: number; wood: number; alive: boolean; ammo: number; reloadTimer: number };
+        enemies: Array<{ kind: string; state: string; health: number; damage: number; cashReward: number; x: number; y: number; isRaid: boolean }>;
         cash: number;
         simulationTime: number;
         cashDrops: number;
         cashLoot: Array<{ x: number; y: number; value: number }>;
         rawLoot: Array<{ x: number; y: number; amount: number }>;
-        defense: { level: number; kind: string; posts: number; warriors: number; shots: number };
+        defense: { level: number; kind: string; posts: number; warriors: number; warriorHealth: number[]; shots: number };
+        wardenPositions: Array<{ x: number; y: number; health: number }>;
+        lumberjacks: Array<{ x: number; y: number; state: string; carried: number; target: { x: number; y: number } | null }>;
         cargoAnchor: { x: number; y: number; bottom: number };
         customers: number;
         customerDemand: number;
@@ -34,6 +36,7 @@ declare global {
       setCargo: (meat: number, fish: number) => void;
       setMeals: (meals: number, fishMeals: number) => void;
       setWood: (wood: number) => void;
+      setAmmo: (ammo: number) => void;
       damagePlayer: (amount: number) => void;
       triggerRaid: () => void;
       damageGate: (amount: number) => void;
@@ -89,6 +92,54 @@ test('offline crews leave collectible cash and three-pile lumber stock', async (
   await page.evaluate(() => window.__EMBERWAKE__.teleport(1500, 1120));
   await expect(page.locator('#interaction-title')).toContainText('Lumber yard');
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.wood)).toBeGreaterThan(0);
+});
+
+test('lumberjacks fell real trees and the shoreline crew pad is reachable', async ({ page, browserName, isMobile }) => {
+  test.skip(isMobile || browserName !== 'chromium', 'exercise autonomous harvesting and shoreline collision once');
+  test.setTimeout(55_000);
+  await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
+    version: 8, updatedAt: Date.now(), trailwardenName: 'Timber Fox', cash: 1000,
+    upgrades: { lumberjack: 3 },
+    unlocks: { zone2: true, dock: true, glacier: false, whiteout: false, raidSeen: false },
+    station: {}, tutorial: 'complete'
+  })));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().lumberjacks.some(worker => worker.state === 'chopping')), { timeout: 20_000 }).toBe(true);
+  const target = await page.evaluate(() => window.__EMBERWAKE__.getState().lumberjacks.find(worker => worker.state === 'chopping')?.target);
+  expect(target).not.toBeNull();
+  await page.evaluate(point => window.__EMBERWAKE__.teleport(point!.x - 250, point!.y - 160), target);
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: 'test-results/lumberjack-chopping-tree.png' });
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().station.lumber), { timeout: 25_000 }).toBeGreaterThanOrEqual(4);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(1370, 1220));
+  await page.waitForTimeout(500);
+  await page.screenshot({ path: 'test-results/lumber-yard-after-delivery.png' });
+
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(640, 1740));
+  await expect(page.locator('#interaction-title')).toContainText('Fisher Crew');
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().upgrades.fisher)).toBe(1);
+});
+
+test('the AK fires from a 36-round magazine and reloads for two seconds', async ({ page, browserName, isMobile }) => {
+  test.skip(isMobile || browserName !== 'chromium', 'exercise the final Armory weapon once');
+  await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
+    version: 8, updatedAt: Date.now(), trailwardenName: 'Longshot', cash: 0,
+    upgrades: { weaponTier: 8 }, unlocks: {}, station: {}, tutorial: 'complete'
+  })));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  await page.evaluate(() => {
+    window.__EMBERWAKE__.setAmmo(1);
+    window.__EMBERWAKE__.teleport(1900, 600);
+  });
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.reloadTimer)).toBeGreaterThan(0);
+  expect(await page.evaluate(() => window.__EMBERWAKE__.getState().player.ammo)).toBe(0);
+  await page.screenshot({ path: 'test-results/ak47-reloading.png' });
+  // Step into the safe hearth so the freshly loaded magazine is not immediately fired.
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(980, 1150));
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.reloadTimer), { timeout: 3_500 }).toBe(0);
+  expect(await page.evaluate(() => window.__EMBERWAKE__.getState().player.ammo)).toBeGreaterThanOrEqual(35);
 });
 
 test('eight guests queue and the hired cook delivers meals without banking cash', async ({ page, browserName, isMobile }) => {
@@ -163,11 +214,11 @@ test('compact defense pad advances through defenders and raid loot stays collect
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
   await page.evaluate(() => { window.__EMBERWAKE__.setWood(3); window.__EMBERWAKE__.teleport(1480, 1010); });
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().cash)).toBe(24);
-  await page.evaluate(() => { window.__EMBERWAKE__.grantCash(4000); window.__EMBERWAKE__.teleport(1460, 735); });
+  await page.evaluate(() => { window.__EMBERWAKE__.grantCash(40000); window.__EMBERWAKE__.teleport(1460, 735); });
   await page.waitForTimeout(700);
   expect(await page.evaluate(() => window.__EMBERWAKE__.getState().upgrades.defense)).toBe(0);
   await page.screenshot({ path: 'test-results/compact-defense-pad.png' });
-  for (const [index, kind] of ['spear', 'archer', 'archer', 'turret', 'turret'].entries()) {
+  for (const [index, kind] of ['spear', 'archer', 'archer', 'turret', 'turret', 'turret', 'turret', 'turret', 'turret'].entries()) {
     await page.evaluate(() => window.__EMBERWAKE__.teleport(1460, 680));
     await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().defense.level), { timeout: 30_000 }).toBe(index + 1);
     expect(await page.evaluate(() => window.__EMBERWAKE__.getState().defense.kind)).toBe(kind);
@@ -175,6 +226,7 @@ test('compact defense pad advances through defenders and raid loot stays collect
     await page.waitForTimeout(250);
     await page.screenshot({ path: `test-results/defense-level-${index + 1}.png` });
   }
+  expect(await page.evaluate(() => window.__EMBERWAKE__.getState().defense.posts)).toBe(4);
   await page.evaluate(() => { window.__EMBERWAKE__.teleport(830, 1150); window.__EMBERWAKE__.triggerRaid(); });
   const count = await page.evaluate(() => window.__EMBERWAKE__.getState().enemies.filter(e => e.isRaid).length);
   const before = await page.evaluate(() => window.__EMBERWAKE__.getState().cash);
@@ -202,9 +254,9 @@ test('compact defense pad advances through defenders and raid loot stays collect
 
 test('late districts operate businesses and numbered raid waves scale', async ({ page, browserName, isMobile }) => {
   test.skip(isMobile || browserName !== 'chromium', 'exercise the expanded economy once');
-  test.setTimeout(40_000);
+  test.setTimeout(65_000);
   await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
-    version: 6, updatedAt: Date.now(), trailwardenName: 'Northstar', cash: 0,
+    version: 6, updatedAt: Date.now(), trailwardenName: 'Northstar', cash: 5000,
     upgrades: { defense: 3, gateArmor: 2, compound: 3, warriors: 2, fishery: 3, fisher: 2, oreRig: 2, robots: 2 },
     unlocks: { zone2: true, dock: true, glacier: true, whiteout: true, raidSeen: true },
     station: {}, tutorial: 'complete', stats: { raidsFaced: 4, raidsWon: 3 }
@@ -214,11 +266,21 @@ test('late districts operate businesses and numbered raid waves scale', async ({
   const initial = await page.evaluate(() => window.__EMBERWAKE__.getState());
   expect(initial.defense.warriors).toBe(4);
   expect(initial.gateHealth).toBe(1150);
+  const ridgeIcehorn = initial.enemies.find(enemy => enemy.kind === 'icehorn' && enemy.x < 4400)!;
+  const whiteoutIcehorn = initial.enemies.find(enemy => enemy.kind === 'icehorn' && enemy.x >= 6800)!;
+  expect(ridgeIcehorn.cashReward).toBe(12);
+  expect(whiteoutIcehorn.cashReward).toBe(24);
+  expect(whiteoutIcehorn.health).toBeGreaterThan(ridgeIcehorn.health);
+  expect(whiteoutIcehorn.damage).toBeGreaterThan(ridgeIcehorn.damage);
   await page.evaluate(() => window.__EMBERWAKE__.teleport(1450, 1050));
   await page.waitForTimeout(1_800);
   await page.screenshot({ path: 'test-results/expanded-compound.png' });
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().station.rawFish), { timeout: 12_000 }).toBeGreaterThan(0);
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().cashLoot.some(drop => Math.hypot(drop.x - 5200, drop.y - 2470) < 150)), { timeout: 15_000 }).toBe(true);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(5050, 2680));
+  await page.waitForTimeout(700);
+  await expect(page.locator('#interaction-title')).toContainText('Salvage Rig');
+  await page.screenshot({ path: 'test-results/glacier-salvage-rig.png' });
   await page.evaluate(() => window.__EMBERWAKE__.teleport(7280, 4040));
   await page.waitForTimeout(2_600);
   await page.screenshot({ path: 'test-results/whiteout-robot-foundry.png' });
@@ -228,6 +290,12 @@ test('late districts operate businesses and numbered raid waves scale', async ({
   });
   expect(raid.raidWave).toBe(5);
   expect(raid.enemies.filter(enemy => enemy.isRaid).length).toBe(10);
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().wardenPositions.some(warden => warden.x > 1750)), { timeout: 20_000 }).toBe(true);
+  const defending = await page.evaluate(() => window.__EMBERWAKE__.getState());
+  expect(defending.defense.warriorHealth.every(health => health <= 160)).toBe(true);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(1780, 870));
+  await page.waitForTimeout(700);
+  await page.screenshot({ path: 'test-results/wardens-outside-gate.png' });
 });
 
 test('the real first launch shows the loading ritual and stores the Trailwarden name', async ({ page, browserName, isMobile }) => {

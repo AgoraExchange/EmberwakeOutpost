@@ -8,9 +8,13 @@ import {
   butcherSecondsFor,
   convertStation,
   purchaseMeal,
+  raidKillCashForWave,
   raidProfileFor,
+  roamingBearCash,
   upgradeCost,
-  weaponDamageFor
+  weaponDamageFor,
+  weaponMagazineFor,
+  weaponReloadSecondsFor
 } from '../../src/game/rules';
 
 describe('combat and cooldown rules', () => {
@@ -44,6 +48,25 @@ describe('combat and cooldown rules', () => {
     expect(raidProfileFor(1)).toMatchObject({ wave: 1, count: 4, healthMultiplier: 1, damageMultiplier: 1, reward: 42 });
     expect(raidProfileFor(8).count).toBeGreaterThan(raidProfileFor(2).count);
     expect(raidProfileFor(100)).toMatchObject({ count: 16, healthMultiplier: 3.5, damageMultiplier: 2.25, speedMultiplier: 1.35 });
+  });
+
+  it('rewards stronger wildlife and higher raid waves', () => {
+    expect(roamingBearCash('rimeback')).toBe(6);
+    expect(roamingBearCash('icehorn')).toBe(12);
+    expect(roamingBearCash('icehorn', 2)).toBe(24);
+    expect(raidKillCashForWave(1)).toBe(6);
+    expect(raidKillCashForWave(10)).toBe(24);
+    expect(raidKillCashForWave(100)).toBe(60);
+  });
+
+  it('gives the assault rifles exact magazines, fire rates, and reloads', () => {
+    expect(weaponMagazineFor(7)).toBe(26);
+    expect(weaponMagazineFor(8)).toBe(36);
+    expect(attackCadenceFor(0, 7)).toBe(.25);
+    expect(attackCadenceFor(0, 8)).toBe(.2);
+    expect(weaponReloadSecondsFor(8)).toBe(2);
+    expect(weaponDamageFor(0, 8)).toBeGreaterThan(weaponDamageFor(0, 7));
+    expect(weaponDamageFor(0, 6)).toBeGreaterThan(weaponDamageFor(0, 5));
   });
 });
 

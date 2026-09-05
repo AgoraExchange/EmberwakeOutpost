@@ -43,7 +43,7 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.5.0';
+const APP_VERSION = '1.6.0';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 
@@ -393,6 +393,7 @@ async function bootstrap(): Promise<void> {
       setCargo: (meat: number, fish: number) => game.debugSetCargo(meat, fish),
       setMeals: (meals: number, fishMeals: number) => game.debugSetMeals(meals, fishMeals),
       setWood: (wood: number) => game.debugSetWood(wood),
+      setAmmo: (ammo: number) => game.debugSetAmmo(ammo),
       spriteCount: () => spriteCount(),
       damagePlayer: (amount: number) => game.debugDamagePlayer(amount),
       triggerRaid: () => game.debugTriggerRaid(),

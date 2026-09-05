@@ -145,8 +145,8 @@ export const ENEMIES: Record<'rimeback' | 'icehorn' | 'raider', EnemyConfig> = {
 };
 
 /** The Armory chain. Each plate purchase advances the Trailwarden one rung. */
-export const WEAPON_NAMES = ['Frost blade', 'Trail axe', 'Ember pike', 'Arc brand', 'Bolt gun'] as const;
-export const WEAPON_ICONS = ['†', '⚒', '⇑', '⚡', '➤'] as const;
+export const WEAPON_NAMES = ['Frost blade', 'Trail axe', 'Ember pike', 'Arc brand', 'Bolt gun', 'Sniper Rifle', '.50 Sniper Rifle', 'SCAR Assault Rifle', 'AK-47 Assault Rifle'] as const;
+export const WEAPON_ICONS = ['†', '⚒', '⇑', '⚡', '➤', '⌖', '◆', '≋', '※'] as const;
 /** The rung at which the weapon starts firing projectiles instead of swinging. */
 export const WEAPON_RANGED_TIER = 4;
 
@@ -157,7 +157,11 @@ export const DEFENSE_TIERS = [
   { name: 'Archer tower', kind: 'archer', count: 1, damage: 25, range: 480, cadence: .9 },
   { name: 'Twin archer towers', kind: 'archer', count: 2, damage: 29, range: 540, cadence: .8 },
   { name: 'Auto turrets', kind: 'turret', count: 2, damage: 19, range: 620, cadence: .32 },
-  { name: 'Ember batteries', kind: 'turret', count: 2, damage: 28, range: 720, cadence: .24 }
+  { name: 'Ember batteries', kind: 'turret', count: 2, damage: 28, range: 720, cadence: .24 },
+  { name: 'East road turret', kind: 'turret', count: 3, damage: 28, range: 720, cadence: .24 },
+  { name: 'East road battery', kind: 'turret', count: 3, damage: 31, range: 760, cadence: .21 },
+  { name: 'Twin road turrets', kind: 'turret', count: 4, damage: 31, range: 760, cadence: .21 },
+  { name: 'Fortress crossfire', kind: 'turret', count: 4, damage: 35, range: 820, cadence: .18 }
 ] as const;
 
 export function defenseTierFor(level: number) {
@@ -178,7 +182,7 @@ export function hunterTierFor(level: number) {
 export const UPGRADES: UpgradeConfig[] = [
   { id: 'weaponDamage', label: 'Edge', icon: '✦', description: 'Sharper hits', baseCost: 26, costScale: 1.72, maxLevel: 8, effectText: l => `${8 + l * 3} damage` },
   { id: 'attackSpeed', label: 'Tempo', icon: '»', description: 'Faster attacks', baseCost: 42, costScale: 1.76, maxLevel: 6, effectText: l => `${(0.78 * Math.pow(0.9, l)).toFixed(2)}s cadence` },
-  { id: 'weaponTier', label: 'Armory', icon: '⚒', description: 'Stronger, longer, slightly faster attacks', baseCost: 72, costScale: 2.05, maxLevel: 4, effectText: l => `${WEAPON_NAMES[l] ?? WEAPON_NAMES[WEAPON_NAMES.length - 1]!} · damage + speed`, iconForLevel: l => WEAPON_ICONS[Math.min(l + 1, WEAPON_ICONS.length - 1)]! },
+  { id: 'weaponTier', label: 'Armory', icon: '⚒', description: 'Blades, sniper rifles, then magazine-fed assault rifles', baseCost: 72, costScale: 1.82, maxLevel: 8, effectText: l => `${WEAPON_NAMES[l] ?? WEAPON_NAMES[WEAPON_NAMES.length - 1]!}${l === 7 ? ' · 26 rounds · 4/sec' : l === 8 ? ' · 36 rounds · 5/sec' : ' · damage + range'}`, iconForLevel: l => WEAPON_ICONS[Math.min(l + 1, WEAPON_ICONS.length - 1)]! },
   { id: 'maxHealth', label: 'Vigor', icon: '♥', description: 'More max health', baseCost: 38, costScale: 1.7, maxLevel: 7, effectText: l => `${100 + l * 22} health` },
   { id: 'moveSpeed', label: 'Boots', icon: '↟', description: 'Responsive movement', baseCost: 48, costScale: 1.78, maxLevel: 5, effectText: l => `${210 + l * 14} speed` },
   { id: 'capacity', label: 'Pack', icon: '▰', description: 'Carry more cargo', baseCost: 24, costScale: 1.63, maxLevel: 8, effectText: l => `${4 + l * 3} cargo` },
@@ -189,10 +193,10 @@ export const UPGRADES: UpgradeConfig[] = [
   { id: 'customerFlow', label: 'Beacon', icon: '⌁', description: 'Faster arrivals for an eight-villager queue', baseCost: 58, costScale: 1.76, maxLevel: 6, effectText: l => `8 guests · ${Math.max(.18, .62 - l * .065).toFixed(2)}s arrival stagger` },
   { id: 'saleValue', label: 'Recipes', icon: '◆', description: 'Better meal value', baseCost: 76, costScale: 1.84, maxLevel: 6, effectText: l => `$${4 + l * 2} / meal` },
   { id: 'worker', label: 'Cook', icon: '♟', description: 'Hire a cook to carry meals to villagers; upgrade for faster four-meal deliveries', baseCost: 108, costScale: 2.25, maxLevel: 2, effectText: l => l === 0 ? 'Manual meal delivery' : l === 1 ? 'Cook delivers 2 meals per trip' : 'Fast cook delivers 4 meals per trip' },
-  { id: 'defense', label: 'Defense', icon: '⌾', description: 'Spear guards → archer towers → automatic turrets', baseCost: 96, costScale: 1.92, maxLevel: 5, effectText: l => `${defenseTierFor(l).name} · ${220 + l * 70} gate HP`, iconForLevel: l => l < 1 ? '⚔' : l < 3 ? '➶' : '⌾' },
+  { id: 'defense', label: 'Defense', icon: '⌾', description: 'Spear guards → towers → buried road batteries', baseCost: 96, costScale: 1.82, maxLevel: 9, effectText: l => `${defenseTierFor(l).name} · ${220 + l * 70} gate HP`, iconForLevel: l => l < 1 ? '⚔' : l < 3 ? '➶' : '⌾' },
   { id: 'gateArmor', label: 'Gate Armor', icon: '▥', description: 'Reinforce every gate with iron, braces, and Ember plating', baseCost: 180, costScale: 2.05, maxLevel: 5, effectText: l => `${l === 0 ? 'Timber' : l < 3 ? 'Iron-braced' : 'Ember-plated'} gates · +${l * 180} HP` },
   { id: 'compound', label: 'Compound', icon: '▰', description: 'Fortify the core, claim shoreline and eastern annexes', baseCost: 240, costScale: 2.15, maxLevel: 3, effectText: l => ['Core palisade', 'Reinforced core', 'Shoreline annex', 'Eastern stronghold'][Math.min(3, l)]! },
-  { id: 'warriors', label: 'Warriors', icon: '♜', description: 'Recruit roaming wardens who patrol and fight raid packs', baseCost: 210, costScale: 2.1, maxLevel: 4, effectText: l => l === 0 ? 'No patrol' : `${l * 2} roaming wardens · ${12 + l * 4} damage` },
+  { id: 'warriors', label: 'Warriors', icon: '♜', description: 'Wardens patrol, then charge outside to intercept raid packs', baseCost: 210, costScale: 2.1, maxLevel: 4, effectText: l => l === 0 ? 'No patrol' : `${l * 2} wardens · ${12 + l * 4} damage · ${125 + (l - 1) * 35} HP` },
   { id: 'fishery', label: 'Fishery', icon: '≈', description: 'Faster catches, faster smokehouse, and larger catches', baseCost: 160, costScale: 1.9, maxLevel: 5, effectText: l => `${Math.max(1.1, 3.2 / (1 + l * .25)).toFixed(1)}s catch · ${1 + Math.floor(l / 3)} fish` },
   { id: 'fisher', label: 'Fisher Crew', icon: '⚓', description: 'Hire fishers who keep the smokehouse supplied', baseCost: 260, costScale: 2.05, maxLevel: 3, effectText: l => l === 0 ? 'Manual fishing' : `${l} fishers · auto-catch every ${Math.max(2.4, 7.2 - l * 1.3).toFixed(1)}s` },
   { id: 'oreRig', label: 'Salvage Rig', icon: '⛏', description: 'Extract valuable Ember ore in Glacier Reach', baseCost: 700, costScale: 2.1, maxLevel: 5, effectText: l => l === 0 ? 'No extraction' : `$${12 + l * 8} ore crates · powered rig ${l}` },

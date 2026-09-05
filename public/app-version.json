@@ -1,9 +1,9 @@
 {
-  "version": "1.5.0",
+  "version": "1.6.0",
   "releasedAt": "2026-09-05",
   "notes": [
-    "A buyable Hunter Crew makes timed frontier trips and delivers raw bear meat directly to the Cookout.",
-    "Three hunter upgrades add crew, larger hauls, faster trips, and higher Cookout meat stock limits.",
-    "Hunter production continues during offline time and feeds the existing cook and meal-delivery chain."
+    "Lumberjacks now select and chop real trees, carry visible log stacks home, and fill a rebuilt lumber shed where every stored log is drawn.",
+    "Armory and defense progression now extends through sniper and assault rifles, buried road turrets, fighting wardens, and wave-scaled raid loot.",
+    "The Fisher Crew and Salvage Rig pads are reachable and visible, the rig has new machinery, and oversized Cookout and Timber Post signs are removed."
   ]
 }

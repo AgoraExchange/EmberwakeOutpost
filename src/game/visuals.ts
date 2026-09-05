@@ -219,6 +219,37 @@ export function drawWeapon(g: Graphics, tier: number): void {
   g.clear();
   const outline = BRAND.colors.outline;
   switch (tier) {
+    case 8: {
+      // AK-47: long curved magazine, wood furniture and a heavy barrel.
+      g.roundRect(-3, -10, 58, 15, 4).fill(0x34424a).stroke({ color: outline, width: 2.5 });
+      g.roundRect(-15, -8, 25, 17, 5).fill(0x8a4f31).stroke({ color: outline, width: 2.5 });
+      g.moveTo(18, 3).quadraticCurveTo(28, 31, 42, 27).lineTo(37, 7).closePath().fill(0x29353d).stroke({ color: outline, width: 2 });
+      g.roundRect(50, -7, 31, 7, 2).fill(0x263a45).stroke({ color: 0x9eb1b5, width: 1.8 });
+      g.roundRect(6, -18, 25, 8, 3).fill(0x9a5b36).stroke({ color: outline, width: 2 });
+      break;
+    }
+    case 7: {
+      // SCAR: sand receiver, straight magazine and compact optic.
+      g.roundRect(-7, -11, 65, 17, 5).fill(0xb08a57).stroke({ color: outline, width: 2.5 });
+      g.roundRect(-20, -8, 20, 13, 4).fill(0x4a5456).stroke({ color: outline, width: 2 });
+      g.moveTo(17, 4).lineTo(35, 4).lineTo(32, 30).lineTo(19, 27).closePath().fill(0x3b464c).stroke({ color: outline, width: 2 });
+      g.roundRect(53, -8, 32, 7, 2).fill(0x45545a).stroke({ color: 0xaec2c5, width: 1.8 });
+      g.roundRect(17, -22, 21, 10, 4).fill(0x314751).stroke({ color: outline, width: 2 });
+      break;
+    }
+    case 6:
+    case 5: {
+      const heavy = tier === 6;
+      // Long-range rifles: the .50 gains a thicker receiver, brake and larger optic.
+      g.roundRect(-20, -8, 31, 13, 5).fill(0x6f4d35).stroke({ color: outline, width: 2.5 });
+      g.roundRect(4, -12, heavy ? 58 : 49, heavy ? 18 : 15, 4).fill(heavy ? 0x3c5059 : 0x53666c).stroke({ color: outline, width: 2.5 });
+      g.roundRect(58, -8, heavy ? 55 : 43, heavy ? 9 : 7, 2).fill(0x2a3d46).stroke({ color: 0xa8bbc0, width: 2 });
+      if (heavy) g.roundRect(99, -11, 14, 15, 2).fill(0x657b82).stroke({ color: outline, width: 2 });
+      g.roundRect(18, -26, heavy ? 36 : 29, 10, 4).fill(0x263e49).stroke({ color: outline, width: 2 });
+      g.circle(heavy ? 49 : 42, -21, heavy ? 7 : 6).fill(0x7fe0ed).stroke({ color: outline, width: 2 });
+      g.moveTo(11, 5).lineTo(25, 24).moveTo(49, 5).lineTo(56, 24).stroke({ color: 0x37454a, width: 5 });
+      break;
+    }
     case 4: {
       // bolt gun: stock, receiver, muzzle
       g.roundRect(6, -12, 40, 13, 5).fill(0x4a5f66).stroke({ color: outline, width: 2.5 });

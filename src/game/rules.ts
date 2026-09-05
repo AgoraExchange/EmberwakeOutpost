@@ -26,11 +26,18 @@ export function capacityFor(level: number): number { return 4 + level * 3; }
 export function maxHealthFor(level: number): number { return 100 + level * 22; }
 export function healingPerSecondFor(infirmaryLevel: number): number { return 4 + Math.max(0, infirmaryLevel) * 2; }
 export function moveSpeedFor(level: number): number { return Math.min(280, 210 + level * 14); }
-export function weaponDamageFor(level: number, tier: number): number { return 8 + level * 3 + tier * 5; }
+export function weaponDamageFor(level: number, tier: number): number {
+  const tierBonus = [0, 5, 10, 15, 20, 48, 82, 28, 36][tier] ?? 36;
+  return 8 + level * 3 + tierBonus;
+}
 export function attackCadenceFor(level: number, weaponTier = 0): number {
+  if (weaponTier === 7) return .25;
+  if (weaponTier >= 8) return .2;
   return Math.max(0.34, 0.78 * Math.pow(0.9, level) * Math.pow(0.96, weaponTier));
 }
-export function attackRangeFor(tier: number): number { return [92, 122, 158, 215, 320][tier] ?? 320; }
+export function attackRangeFor(tier: number): number { return [92, 122, 158, 215, 320, 700, 820, 450, 500][tier] ?? 500; }
+export function weaponMagazineFor(tier: number): number { return tier === 7 ? 26 : tier >= 8 ? 36 : 0; }
+export function weaponReloadSecondsFor(tier: number): number { return tier >= 7 ? 2 : 0; }
 export function magnetRadiusFor(level: number): number { return 95 + level * 22; }
 export function butcherSecondsFor(level: number, workers: number): number { return Math.max(0.25, 2.15 * Math.pow(0.84, level) / (1 + workers * 0.55)); }
 export function storageCapacityFor(level: number): number { return 10 + level * 6; }
@@ -63,6 +70,12 @@ export function raidProfileFor(waveNumber: number): RaidProfile {
     speedMultiplier: Math.min(1.35, 1 + steps * 0.015),
     reward: 34 + wave * 8
   };
+}
+export function raidKillCashForWave(waveNumber: number): number {
+  return Math.min(60, 6 + Math.max(0, Math.floor(waveNumber) - 1) * 2);
+}
+export function roamingBearCash(kind: 'rimeback' | 'icehorn', regionTier = 0): number {
+  return (kind === 'icehorn' ? 12 : 6) + Math.max(0, Math.floor(regionTier)) * 6;
 }
 export function warmRadiusFor(level: number): number { return 265 + level * 40; }
 export function respawnSecondsFor(level: number): number { return Math.max(0.85, 2 - level * 0.28); }

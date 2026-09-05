@@ -42,11 +42,15 @@ import {
   normalize,
   purchaseMeal,
   queueCapacityFor,
+  raidKillCashForWave,
   raidProfileFor,
+  roamingBearCash,
   respawnSecondsFor,
   upgradeCost,
   warmRadiusFor,
-  weaponDamageFor
+  weaponDamageFor,
+  weaponMagazineFor,
+  weaponReloadSecondsFor
 } from './rules';
 import { saveProgress } from './save';
 import { finishOfflineCooking } from './progression';
@@ -79,7 +83,8 @@ interface PlayerEntity {
   health: number; meat: number; fish: number; meals: number; fishMeals: number; wood: number; spawnProtection: number;
   attackCooldown: number; attackVisual: number; chopVisual: number; hurtVisual: number; defeatVisual: number;
   pendingHitTimer: number; pendingTarget: EnemyEntity | null; alive: boolean; respawnTimer: number;
-  container: Container; body: Graphics; pack: Graphics; weapon: Graphics; chopAxe: Graphics; healthBar: Graphics; shadow: Graphics; protectionAura: Graphics;
+  ammo: number; reloadTimer: number;
+  container: Container; body: Graphics; pack: Graphics; weapon: Graphics; chopAxe: Graphics; ammoText: Text; healthBar: Graphics; shadow: Graphics; protectionAura: Graphics;
   /** Cached appearance keys so unchanged cargo/health geometry is not rebuilt each frame. */
   cargoKey: string; healthKey: string;
 }
@@ -89,6 +94,7 @@ interface EnemyEntity {
   facing: number; health: number; state: EnemyState; stateTimer: number; attackCooldown: number; wanderAngle: number;
   dropped: boolean; isRaid: boolean; alive: boolean; container: Container; body: Graphics; shadow: Graphics; healthBar: Graphics;
   targetRing: Graphics; alert: Text; healthKey: string;
+  cashReward: number; defenderTarget: DefenderPost | null;
   /** Raiders first converge on the outside approach, then advance on the gate. */
   raidApproachedGate: boolean;
 }
@@ -184,7 +190,13 @@ interface DamageLabel { text: Text; x: number; y: number; life: number; maxLife:
 type DefenderPost = ReturnType<typeof createDefenseVisual> & Vec2 & {
   cooldown: number; lastShot: number; mobile: boolean; home: Vec2;
   damage: number; range: number; cadence: number; projectile: 'spear' | 'archer' | 'turret';
+  health: number; maxHealth: number; speed: number; alive: boolean; healthBar: Graphics;
 };
+type LumberjackState = 'idle' | 'to-inside-gate' | 'to-outside-gate' | 'to-tree' | 'chopping' | 'return-outside-gate' | 'return-inside-gate' | 'return-yard';
+interface LumberjackWorker {
+  container: Container; cargo: Graphics; x: number; y: number; state: LumberjackState;
+  target: TreeEntity | null; chopTimer: number; carried: number;
+}
 interface StationVisuals {
   furnaceGlow: Graphics; furnaceFlame: Graphics; warmRing: Graphics; butcherProgress: Graphics; butcherStock: Text;
   mealOutput: Container; mealPile: Graphics; mealOutputStock: Text; cashStock: Text;
@@ -226,8 +238,8 @@ const PAD_SLOTS: PadSlot[] = [
   { x: 1380, y: 1040, fixed: 'warriors' },
   // Each remote district has its own permanent production and staffing investments.
   { x: 790, y: 1840, fixed: 'fishery' },
-  { x: 850, y: 2020, fixed: 'fisher' },
-  { x: 4850, y: 2320, fixed: 'oreRig' },
+  { x: 640, y: 1740, fixed: 'fisher' },
+  { x: 5050, y: 2610, fixed: 'oreRig' },
   { x: 7060, y: 3970, fixed: 'robots' },
   { x: 1640, y: 1260, fixed: 'lumberjack' },
   { x: 1560, y: 1340, fixed: 'hunters' },
@@ -296,7 +308,7 @@ export class Game {
   private readonly unlockPads: UnlockPad[] = [];
   private readonly trees: TreeEntity[] = [];
   private readonly fisherVisuals: Container[] = [];
-  private readonly lumberjackVisuals: Container[] = [];
+  private readonly lumberjackVisuals: LumberjackWorker[] = [];
   private readonly hunterVisuals: Container[] = [];
   private readonly robotVisuals: Container[] = [];
   private oreRigBuilding!: Container;
@@ -472,13 +484,15 @@ export class Game {
 
   debugState() {
     return {
-      player: { x: this.player.x, y: this.player.y, health: this.player.health, meat: this.player.meat, fish: this.player.fish, meals: this.player.meals, fishMeals: this.player.fishMeals, wood: this.player.wood, alive: this.player.alive },
-      enemies: this.enemies.map(enemy => ({ kind: enemy.kind, state: enemy.state, health: enemy.health, x: enemy.x, y: enemy.y, isRaid: enemy.isRaid })),
+      player: { x: this.player.x, y: this.player.y, health: this.player.health, meat: this.player.meat, fish: this.player.fish, meals: this.player.meals, fishMeals: this.player.fishMeals, wood: this.player.wood, alive: this.player.alive, ammo: this.player.ammo, reloadTimer: this.player.reloadTimer },
+      enemies: this.enemies.map(enemy => ({ kind: enemy.kind, state: enemy.state, health: enemy.health, damage: enemy.config.damage, cashReward: enemy.cashReward, x: enemy.x, y: enemy.y, isRaid: enemy.isRaid })),
       cash: this.save.cash,
       cashDrops: this.cashDrops.length,
       cashLoot: this.cashDrops.map(({ x, y, value }) => ({ x, y, value })),
       rawLoot: this.cargoDrops.filter(drop => drop.kind === 'meat').map(({ x, y, amount }) => ({ x, y, amount })),
-      defense: { level: this.save.upgrades.defense, kind: defenseTierFor(this.save.upgrades.defense).kind, name: defenseTierFor(this.save.upgrades.defense).name, posts: this.defenders.length, warriors: this.defenders.filter(post => post.mobile).length, shots: this.defenseShots },
+      defense: { level: this.save.upgrades.defense, kind: defenseTierFor(this.save.upgrades.defense).kind, name: defenseTierFor(this.save.upgrades.defense).name, posts: this.defenders.length, warriors: this.defenders.filter(post => post.mobile && post.alive).length, warriorHealth: this.defenders.filter(post => post.mobile).map(post => post.health), shots: this.defenseShots },
+      wardenPositions: this.defenders.filter(post => post.mobile && post.alive).map(post => ({ x: post.x, y: post.y, health: post.health })),
+      lumberjacks: this.lumberjackVisuals.filter(worker => worker.container.visible).map(worker => ({ x: worker.x, y: worker.y, state: worker.state, carried: worker.carried, target: worker.target ? { x: worker.target.x, y: worker.target.y } : null })),
       cargoAnchor: { x: this.player.pack.x, y: this.player.pack.y, bottom: this.player.pack.getLocalBounds().maxY + this.player.pack.y },
       customers: this.customers.length,
       customerDemand: this.customerBearDemand + this.customerFishDemand,
@@ -506,6 +520,7 @@ export class Game {
   debugSetCargo(meat: number, fish: number): void { this.player.meat = Math.max(0, Math.floor(meat)); this.player.fish = Math.max(0, Math.floor(fish)); }
   debugSetMeals(meals: number, fishMeals: number): void { this.player.meals = Math.max(0, Math.floor(meals)); this.player.fishMeals = Math.max(0, Math.floor(fishMeals)); }
   debugSetWood(wood: number): void { this.player.wood = Math.max(0, Math.floor(wood)); }
+  debugSetAmmo(ammo: number): void { this.player.ammo = Math.max(0, Math.floor(ammo)); this.player.reloadTimer = 0; }
   debugDamagePlayer(amount: number): void { this.player.spawnProtection = 0; this.player.health = Math.max(0, this.player.health - Math.max(0, amount)); if (this.player.health <= 0) this.defeatPlayer(); }
   debugTriggerRaid(): void { if (this.raidState !== 'active') this.startRaid(); }
   debugDamageGate(amount: number): void { if (this.raidState === 'active' && !this.raidBreached) this.gateHealth = Math.max(0, this.gateHealth - Math.max(0, amount)); }
@@ -821,22 +836,47 @@ export class Game {
     cashStock.position.set(0, -46);
     cashZone.addChild(cashStock);
 
-    // Shop-style wayfinding boards keep core actions readable without asking
-    // ground text to compete with buildings, workers, cargo, or the queue.
-    const mealOutputStock = this.makeWayfindingSign(1260, 350, 'COOKOUT', 'DROP RAW  →  TAKE MEALS', BRAND.colors.ember);
+    // The tutorial teaches the Cookout and timber loop. Compact live stock labels
+    // preserve feedback without large signboards covering the working yard.
+    const mealOutputStock = worldText('DROP RAW  →  TAKE MEALS', 13, 0xffedc5, '900');
+    mealOutputStock.position.set(0, -58);
+    mealOutput.addChild(mealOutputStock);
     const serveHint = this.makeWayfindingSign(470, 835, 'MESS HALL', 'SERVE COOKED  →  GET CASH', 0x6fd39b);
-    this.makeWayfindingSign(1700, 1020, 'TIMBER POST', `SELL LOGS  ·  $${TIMBER.logValue} EACH`, BRAND.colors.timber);
 
     const lumberZone = this.makeInteractionZone(1500, 1120, 66, BRAND.colors.timber, 'LUMBER YARD');
+    const lumberDecor = new Graphics();
+    lumberDecor.ellipse(0, 14, 108, 42).fill({ color: BRAND.colors.ao, alpha: .22 });
+    lumberDecor.moveTo(-108, 8).lineTo(0, 54).lineTo(108, 8).lineTo(0, -38).closePath()
+      .fill(0x79583d).stroke({ color: BRAND.colors.outline, width: 3 });
+    for (const x of [-82, 82]) {
+      lumberDecor.roundRect(x - 6, -93, 12, 102, 3).fill(0x68472f).stroke({ color: BRAND.colors.outline, width: 2 });
+      lumberDecor.moveTo(x, -82).lineTo(x > 0 ? 34 : -34, -8).stroke({ color: 0xa8794d, width: 7 });
+    }
+    lumberDecor.moveTo(-101, -88).lineTo(0, -127).lineTo(101, -88).lineTo(0, -52).closePath()
+      .fill(0x3f6470).stroke({ color: BRAND.colors.outline, width: 4 });
+    lumberDecor.moveTo(-92, -91).lineTo(0, -122).lineTo(92, -91).stroke({ color: 0xe7f3ed, width: 8, cap: 'round' });
+    lumberDecor.circle(70, -5, 20).fill(0xaab9ba).stroke({ color: BRAND.colors.outline, width: 3 });
+    lumberDecor.circle(70, -5, 6).fill(BRAND.colors.ember);
+    for (let tooth = 0; tooth < 8; tooth += 1) {
+      const angle = tooth / 8 * Math.PI * 2;
+      lumberDecor.moveTo(70 + Math.cos(angle) * 18, -5 + Math.sin(angle) * 18)
+        .lineTo(70 + Math.cos(angle) * 25, -5 + Math.sin(angle) * 25)
+        .stroke({ color: 0xcbd5d4, width: 4 });
+    }
+    lumberZone.addChild(lumberDecor);
     const lumberPile = new Graphics();
     lumberPile.position.set(0, -18);
     const lumberStock = worldText('LOGS 0 / 300', 14, 0xffedc5, '900');
     lumberStock.position.set(0, -70);
     lumberZone.addChild(lumberPile, lumberStock);
     for (let index = 0; index < 3; index += 1) {
-      const worker = this.createCampWorker(1810 + index * 55, 1010 + index * 65, 0x8b633f);
-      worker.label = 'lumberjack-crew';
-      this.lumberjackVisuals.push(worker);
+      const container = this.createCampWorker(1500 + index * 28, 1120 + index * 18, 0x8b633f);
+      container.label = 'lumberjack-crew';
+      const cargo = new Graphics();
+      cargo.position.set(-24, -54);
+      container.addChild(cargo);
+      this.lumberjackVisuals.push({ container, cargo, x: 1500 + index * 28, y: 1120 + index * 18,
+        state: 'idle', target: null, chopTimer: 0, carried: 0 });
     }
     for (let index = 0; index < 3; index += 1) {
       const hunter = this.createCampWorker(1880 + index * 55, 760 + index * 38, 0x536f4e);
@@ -1041,14 +1081,30 @@ export class Game {
     this.defenders.length = 0;
     const tier = defenseTierFor(level);
     for (let index = 0; index < tier.count; index += 1) {
-      const x = tier.kind === 'spear' ? 1690 : 1650;
-      const y = tier.kind === 'spear' ? (index === 0 ? 785 : 950) : (index === 0 ? 690 : 1050);
-      const visual = createDefenseVisual(tier.kind, level === 5);
+      const outside = tier.kind === 'turret' && index >= 2;
+      const x = tier.kind === 'spear' ? 1690 : outside ? 1930 : 1650;
+      const y = tier.kind === 'spear' ? (index === 0 ? 785 : 950) : index % 2 === 0 ? (outside ? 775 : 690) : (outside ? 965 : 1050);
+      const advanced = level >= 5 && index < 2 || index === 2 && level >= 7 || index === 3 && level >= 9;
+      const visual = createDefenseVisual(tier.kind, advanced);
       visual.container.label = `compound-defense-${tier.kind}`;
+      if (outside) {
+        const emplacement = new Graphics();
+        emplacement.ellipse(0, 8, 55, 24).fill(0x405761).stroke({ color: 0xbfd3d2, width: 4 });
+        emplacement.ellipse(0, 5, 39, 16).fill(0x263d49).stroke({ color: BRAND.colors.outline, width: 3 });
+        for (const angle of [-.75, -.25, .25, .75]) emplacement.moveTo(Math.cos(angle) * 42, 5 + Math.sin(angle) * 17)
+          .lineTo(Math.cos(angle) * 57, 7 + Math.sin(angle) * 22).stroke({ color: 0xdce9e5, width: 5 });
+        visual.container.addChildAt(emplacement, 0);
+        visual.container.scale.set(.78);
+        visual.height *= .78;
+      }
       this.place(visual.container, x, y, 35);
       this.world.addChild(visual.container);
+      const healthBar = new Graphics();
+      healthBar.visible = false;
+      visual.container.addChild(healthBar);
       this.defenders.push({ ...visual, x, y, home: { x, y }, mobile: false, damage: tier.damage, range: tier.range,
-        cadence: tier.cadence, projectile: tier.kind, cooldown: index * .13, lastShot: -100 });
+        cadence: tier.cadence, projectile: tier.kind, cooldown: index * .13, lastShot: -100,
+        health: Number.POSITIVE_INFINITY, maxHealth: Number.POSITIVE_INFINITY, speed: 0, alive: true, healthBar });
     }
     for (let index = 0; index < warriorLevel * 2; index += 1) {
       const angle = index / Math.max(1, warriorLevel * 2) * Math.PI * 2;
@@ -1058,8 +1114,13 @@ export class Game {
       visual.container.label = 'roaming-compound-warrior';
       this.place(visual.container, x, y, 35);
       this.world.addChild(visual.container);
+      const maxHealth = 125 + Math.max(0, warriorLevel - 1) * 35;
+      const healthBar = new Graphics();
+      healthBar.position.set(0, -86);
+      visual.container.addChild(healthBar);
       this.defenders.push({ ...visual, x, y, home: { x, y }, mobile: true, damage: 12 + warriorLevel * 4,
-        range: 175 + warriorLevel * 18, cadence: Math.max(.62, 1.15 - warriorLevel * .1), projectile: 'spear', cooldown: index * .11, lastShot: -100 });
+        range: 175 + warriorLevel * 18, cadence: Math.max(.62, 1.15 - warriorLevel * .1), projectile: 'spear', cooldown: index * .11, lastShot: -100,
+        health: maxHealth, maxHealth, speed: 105 + warriorLevel * 18, alive: true, healthBar });
     }
   }
 
@@ -1218,13 +1279,18 @@ export class Game {
     chopAxe.visible = false;
     const healthBar = new Graphics();
     healthBar.position.set(0, art ? -122 : -82);
-    container.addChild(shadow, protectionAura, pack, body, weapon, chopAxe, healthBar);
+    const ammoText = worldText('', 13, 0xffe29a, '900');
+    ammoText.position.set(0, art ? -145 : -105);
+    ammoText.visible = false;
+    container.addChild(shadow, protectionAura, pack, body, weapon, chopAxe, healthBar, ammoText);
     this.world.addChild(container);
 
     return {
       x: WORLD.respawn.x, y: WORLD.respawn.y, vx: 0, vy: 0, facing: 0, health: maxHealthFor(this.save.upgrades.maxHealth),
       meat: 0, fish: 0, meals: 0, fishMeals: 0, wood: 0, spawnProtection: 2.5, attackCooldown: 0, attackVisual: 0, chopVisual: 0, hurtVisual: 0, defeatVisual: 0,
-      pendingHitTimer: 0, pendingTarget: null, alive: true, respawnTimer: 0, container, body, pack, weapon, chopAxe, healthBar, shadow, protectionAura,
+      pendingHitTimer: 0, pendingTarget: null, alive: true, respawnTimer: 0,
+      ammo: weaponMagazineFor(this.save.upgrades.weaponTier), reloadTimer: 0,
+      container, body, pack, weapon, chopAxe, ammoText, healthBar, shadow, protectionAura,
       cargoKey: '', healthKey: ''
     };
   }
@@ -1233,7 +1299,14 @@ export class Game {
     // Normal wildlife never originates inside the settlement. Raiders are exempt
     // because their explicit job is to attack the gate during a surge.
     if (!isRaid && this.isInsideCompound(x, y, 90)) x = WILD_EAST_EDGE;
-    const config = ENEMIES[kind];
+    const baseConfig = ENEMIES[kind];
+    const regionTier = !isRaid && x >= WORLD.whiteoutGate.x ? 2 : !isRaid && x >= WORLD.glacierGate.x ? 1 : 0;
+    const config = isRaid || regionTier === 0 ? baseConfig : {
+      ...baseConfig,
+      health: Math.round(baseConfig.health * (1 + regionTier * .38)),
+      damage: Math.round(baseConfig.damage * (1 + regionTier * .24)),
+      speed: Math.round(baseConfig.speed * (1 + regionTier * .05))
+    };
     const container = new Container();
     this.place(container, x, y, 40);
     const targetRing = new Graphics().ellipse(0, 26, 48 * config.scale, 24 * config.scale).stroke({ color: 0xffc25b, width: 5, alpha: 0.85 });
@@ -1259,7 +1332,8 @@ export class Game {
       id: this.nextEnemyId++, kind, config, spawn: { x, y }, x, y, vx: 0, vy: 0, facing: Math.random() * Math.PI * 2,
       health: config.health, state: isRaid ? 'raid' : 'idle', stateTimer: 1 + Math.random() * 2, attackCooldown: 0,
       wanderAngle: Math.random() * Math.PI * 2, dropped: false, isRaid, alive: true, container, body, shadow, healthBar, targetRing, alert,
-      healthKey: '', raidApproachedGate: false
+      healthKey: '', raidApproachedGate: false,
+      cashReward: isRaid ? ECONOMY.bearCashDrop : roamingBearCash(kind === 'icehorn' ? 'icehorn' : 'rimeback', regionTier), defenderTarget: null
     };
   }
 
@@ -1383,6 +1457,16 @@ export class Game {
     this.place(this.oreRigBuilding, 5050, 2380);
     this.oreRigBuilding.label = 'glacier-salvage-rig';
     this.world.addChild(this.oreRigBuilding);
+    const rigMachinery = new Graphics();
+    rigMachinery.roundRect(-92, -116, 26, 104, 7).fill(0x344b58).stroke({ color: BRAND.colors.outline, width: 3 });
+    rigMachinery.roundRect(61, -88, 31, 77, 8).fill(0x455e68).stroke({ color: BRAND.colors.outline, width: 3 });
+    rigMachinery.circle(76, -78, 10).fill(BRAND.colors.ember).circle(76, -78, 4).fill(0xffe18c);
+    rigMachinery.moveTo(-79, -109).lineTo(-26, -158).lineTo(31, -111).stroke({ color: 0x78939a, width: 10, join: 'round' });
+    rigMachinery.moveTo(-26, -158).lineTo(-26, -53).stroke({ color: 0xb3c4c6, width: 8 });
+    rigMachinery.moveTo(-34, -53).lineTo(-26, -24).lineTo(-18, -53).closePath().fill(0xffad52).stroke({ color: BRAND.colors.outline, width: 2 });
+    rigMachinery.moveTo(-64, -28).lineTo(55, 25).stroke({ color: 0x2e4652, width: 20 });
+    for (let offset = -52; offset <= 42; offset += 19) rigMachinery.circle(offset, -22 + (offset + 52) * .43, 6).fill(0x9babb0).stroke({ color: BRAND.colors.outline, width: 1.5 });
+    this.oreRigBuilding.addChild(rigMachinery);
     this.blockers.push({ x: 4938, y: 2308, width: 224, height: 144 });
     this.oreCashZone = this.makeInteractionZone(5200, 2470, 56, BRAND.colors.gold, 'COLLECT ORE CASH');
 
@@ -1820,8 +1904,12 @@ export class Game {
     const radiusSquared = nearRadius * nearRadius;
     const playerNear = this.player.alive && distanceSquared(this.player.x, this.player.y, WORLD.campGate.x, WORLD.campGate.y) < radiusSquared;
     const guestNear = this.customers.some(customer => distanceSquared(customer.x, customer.y, WORLD.campGate.x, WORLD.campGate.y) < radiusSquared);
+    const crewNear = this.lumberjackVisuals.some(worker => worker.container.visible
+      && distanceSquared(worker.x, worker.y, WORLD.campGate.x, WORLD.campGate.y) < radiusSquared)
+      || this.defenders.some(post => post.mobile && post.alive
+        && distanceSquared(post.x, post.y, WORLD.campGate.x, WORLD.campGate.y) < radiusSquared);
     const breached = this.raidState === 'active' && this.raidBreached;
-    gate.heldOpen = playerNear || guestNear || breached;
+    gate.heldOpen = playerNear || guestNear || crewNear || breached;
     gate.open = moveToward(gate.open, gate.heldOpen ? 1 : 0, dt * (gate.heldOpen ? 4.8 : 2.6));
 
     // Smooth the leaf travel and slide each half behind its neighbouring palisade.
@@ -1855,7 +1943,7 @@ export class Game {
       this.blockerCache = [...this.blockers];
       this.blockerCache.push(...this.compoundBlockers);
       if (defenseTierFor(this.save.upgrades.defense).kind !== 'spear') {
-        for (const post of this.defenders) this.blockerCache.push({ x: post.x - 30, y: post.y - 25, width: 60, height: 50 });
+        for (const post of this.defenders) if (!post.mobile) this.blockerCache.push({ x: post.x - 30, y: post.y - 25, width: 60, height: 50 });
       }
       for (const tree of this.trees) if (tree.alive) this.blockerCache.push(tree.blocker);
       if (!this.save.unlocks.zone2) this.blockerCache.push({ x: WORLD.zoneGate.x - 30, y: WORLD.zoneGate.y - 150, width: 60, height: 300 });
@@ -2000,6 +2088,22 @@ export class Game {
 
   private updateCombat(dt: number): void {
     this.player.attackCooldown = Math.max(0, this.player.attackCooldown - dt);
+    const weaponTier = this.save.upgrades.weaponTier;
+    const magazine = weaponMagazineFor(weaponTier);
+    let weaponUnavailable = false;
+    if (magazine > 0) {
+      if (this.player.reloadTimer > 0) {
+        this.player.reloadTimer = Math.max(0, this.player.reloadTimer - dt);
+        if (this.player.reloadTimer === 0) this.player.ammo = magazine;
+      }
+      if (this.player.ammo <= 0 && this.player.reloadTimer <= 0) {
+        this.player.reloadTimer = weaponReloadSecondsFor(weaponTier);
+      }
+      weaponUnavailable = this.player.reloadTimer > 0;
+    } else {
+      this.player.ammo = 0;
+      this.player.reloadTimer = 0;
+    }
     this.player.attackVisual = Math.max(0, this.player.attackVisual - dt);
     this.player.hurtVisual = Math.max(0, this.player.hurtVisual - dt);
     if (this.player.pendingTarget) {
@@ -2012,6 +2116,10 @@ export class Game {
           if (distanceSquared(this.player.x, this.player.y, target.x, target.y) <= (range + 28) ** 2) this.damageEnemy(target);
         }
       }
+    }
+    if (weaponUnavailable) {
+      this.setSelectedTarget(null);
+      return;
     }
 
     if (this.isPlayerSafe()) {
@@ -2027,13 +2135,17 @@ export class Game {
     this.player.attackVisual = 0.26;
     this.player.pendingHitTimer = this.save.upgrades.weaponTier >= WEAPON_RANGED_TIER ? 0.06 : 0.13;
     this.player.pendingTarget = target;
+    if (magazine > 0) {
+      this.player.ammo -= 1;
+      if (this.player.ammo <= 0) this.player.reloadTimer = weaponReloadSecondsFor(weaponTier);
+    }
     if (target.state === 'idle' || target.state === 'wander') {
       target.state = 'alert';
       target.stateTimer = 0.38;
       target.alert.visible = true;
     }
     this.audio.play('swing');
-    // Only the bolt gun actually fires; everything below it is a swing.
+    // The bolt gun and every later Armory tier fire a visible projectile.
     if (this.save.upgrades.weaponTier >= WEAPON_RANGED_TIER) this.spawnProjectileTrail(target);
   }
 
@@ -2086,7 +2198,7 @@ export class Game {
       const angle = (index / enemy.config.meatYield) * Math.PI * 2 + Math.random() * 0.4;
       this.createCargoDrop('meat', enemy.x + Math.cos(angle) * 35, enemy.y + Math.sin(angle) * 25, 1, enemy.isRaid ? 300 : 45);
     }
-    this.createCashDrop(ECONOMY.bearCashDrop, enemy);
+    this.createCashDrop(enemy.isRaid ? raidKillCashForWave(this.raidWave) : enemy.cashReward, enemy);
     this.requestSave();
   }
 
@@ -2161,6 +2273,7 @@ export class Game {
           break;
         case 'raid': {
           if (this.raidBreached) {
+            enemy.defenderTarget = null;
             const foodDistance = Math.sqrt(distanceSquared(enemy.x, enemy.y, WORLD.butcherOutput.x, WORLD.butcherOutput.y));
             // Once the doors buckle, the pack ignores distractions and pours through
             // the opening toward the Cookout's finished-food profit stock.
@@ -2176,9 +2289,14 @@ export class Game {
             if (approachDistance < 70) enemy.raidApproachedGate = true;
             break;
           }
-          const targetPlayer = this.player.alive && !playerSafe && distanceToPlayer < 170;
-          const targetX = targetPlayer ? this.player.x : WORLD.campGate.x + 22;
-          const targetY = targetPlayer ? this.player.y : WORLD.campGate.y;
+          const nearbyDefender = this.defenders.filter(post => post.mobile && post.alive)
+            .sort((a, b) => distanceSquared(enemy.x, enemy.y, a.x, a.y) - distanceSquared(enemy.x, enemy.y, b.x, b.y))[0];
+          const targetDefender = nearbyDefender && distanceSquared(enemy.x, enemy.y, nearbyDefender.x, nearbyDefender.y) < 210 ** 2
+            ? nearbyDefender : null;
+          enemy.defenderTarget = targetDefender;
+          const targetPlayer = !targetDefender && this.player.alive && !playerSafe && distanceToPlayer < 170;
+          const targetX = targetDefender ? targetDefender.x : targetPlayer ? this.player.x : WORLD.campGate.x + 22;
+          const targetY = targetDefender ? targetDefender.y : targetPlayer ? this.player.y : WORLD.campGate.y;
           const distance = Math.sqrt(distanceSquared(enemy.x, enemy.y, targetX, targetY));
           this.steerEnemy(enemy, targetX, targetY, enemy.config.speed, dt);
           if (distance <= enemy.config.attackRange && enemy.attackCooldown <= 0) {
@@ -2237,6 +2355,22 @@ export class Game {
   }
 
   private executeEnemyAttack(enemy: EnemyEntity): void {
+    const defender = enemy.defenderTarget;
+    if (enemy.isRaid && defender?.alive
+      && distanceSquared(enemy.x, enemy.y, defender.x, defender.y) <= (enemy.config.attackRange + 35) ** 2) {
+      defender.health = Math.max(0, defender.health - enemy.config.damage);
+      this.spawnDamageLabel(defender.x, defender.y, enemy.config.damage, 0xff8f78, 88);
+      this.spawnBurst(defender.x, defender.y - 20, BRAND.colors.danger, 7);
+      if (defender.health <= 0) {
+        defender.alive = false;
+        defender.container.visible = false;
+        enemy.defenderTarget = null;
+        this.callbacks.toast('A roaming warden has fallen · They return next wave');
+      }
+      this.audio.play('impact', .62);
+      return;
+    }
+    enemy.defenderTarget = null;
     const playerDistance = distanceSquared(enemy.x, enemy.y, this.player.x, this.player.y);
     if (this.player.alive && !this.isPlayerSafe() && playerDistance <= (enemy.config.attackRange + 35) ** 2) {
       this.player.health = applyDamage(this.player.health, enemy.config.damage, this.player.spawnProtection > 0);
@@ -2460,27 +2594,7 @@ export class Game {
       }
     } else this.save.station.oreProgress = Math.min(this.save.station.oreProgress, .99);
 
-    const lumberjack = this.save.upgrades.lumberjack;
-    if (lumberjack > 0 && this.save.station.lumber < 300) {
-      const interval = [0, 10, 7, 5][lumberjack]!;
-      this.save.station.lumberProgress += dt / interval;
-      if (this.save.station.lumberProgress >= 1) {
-        this.save.station.lumberProgress -= 1;
-        this.save.station.lumber += 1;
-        this.spawnBurst(1500, 1120, BRAND.colors.timber, 3);
-      }
-    } else if (this.save.station.lumber >= 300) this.save.station.lumberProgress = 0;
-    this.lumberjackVisuals.forEach((worker, index) => {
-      const active = index < lumberjack;
-      worker.visible = active;
-      if (!active) return;
-      const phase = (this.simulationTime / ([0, 10, 7, 5][lumberjack]!)) * Math.PI * 2 + index * 1.6;
-      const t = (Math.sin(phase) + 1) / 2;
-      const x = 1500 + (1840 - 1500) * t;
-      const y = 1120 + (960 - 1120) * t + index * 28;
-      worker.scale.x = Math.cos(phase) < 0 ? -1 : 1;
-      this.place(worker, x, y, 35);
-    });
+    this.updateLumberjacks(dt);
 
     const hunter = hunterTierFor(this.save.upgrades.hunters);
     if (hunter.crew > 0 && this.save.station.rawMeat < hunter.stockCap) {
@@ -2505,6 +2619,114 @@ export class Game {
       worker.scale.x = Math.cos(phase) < 0 ? -1 : 1;
       this.place(worker, x, y, 36);
     });
+  }
+
+  private moveLumberjack(worker: LumberjackWorker, target: Vec2, speed: number, dt: number): boolean {
+    const direction = normalize(target.x - worker.x, target.y - worker.y);
+    const step = Math.min(direction.magnitude, speed * dt);
+    worker.x += direction.x * step;
+    worker.y += direction.y * step;
+    if (Math.abs(direction.x) > .05) worker.container.scale.x = direction.x < 0 ? -1 : 1;
+    this.place(worker.container, worker.x, worker.y, 36);
+    return direction.magnitude <= 7;
+  }
+
+  private chooseLumberjackTree(worker: LumberjackWorker): TreeEntity | null {
+    const claimed = new Set(this.lumberjackVisuals.filter(other => other !== worker && other.target?.alive).map(other => other.target));
+    let target: TreeEntity | null = null;
+    let best = Number.POSITIVE_INFINITY;
+    for (const tree of this.trees) {
+      if (!tree.alive || claimed.has(tree) || tree.x < WILD_EAST_EDGE || tree.x >= WORLD.zoneGate.x - 80) continue;
+      const distance = distanceSquared(worker.x, worker.y, tree.x, tree.y);
+      if (distance < best) { best = distance; target = tree; }
+    }
+    return target;
+  }
+
+  private updateLumberjacks(dt: number): void {
+    const level = this.save.upgrades.lumberjack;
+    const speed = 105 + level * 20;
+    for (let index = 0; index < this.lumberjackVisuals.length; index += 1) {
+      const worker = this.lumberjackVisuals[index]!;
+      const active = index < level;
+      worker.container.visible = active;
+      if (!active) continue;
+      const yard = { x: 1500 + index * 25, y: 1120 + index * 16 };
+      if (worker.state === 'idle' && this.save.station.lumber < 300) worker.state = 'to-inside-gate';
+      if (worker.target && !worker.target.alive && worker.state !== 'return-outside-gate') {
+        worker.target = null;
+        worker.state = 'to-outside-gate';
+      }
+      switch (worker.state) {
+        case 'idle':
+          this.moveLumberjack(worker, yard, speed, dt);
+          break;
+        case 'to-inside-gate':
+          if (this.moveLumberjack(worker, { x: ENTRY_INSIDE.x, y: ENTRY_INSIDE.y + index * 22 }, speed, dt)) worker.state = 'to-outside-gate';
+          break;
+        case 'to-outside-gate':
+          if (this.moveLumberjack(worker, { x: ENTRY_OUTSIDE.x, y: ENTRY_OUTSIDE.y + index * 22 }, speed, dt)) {
+            worker.target = this.chooseLumberjackTree(worker);
+            worker.state = worker.target ? 'to-tree' : 'return-inside-gate';
+          }
+          break;
+        case 'to-tree':
+          if (!worker.target) { worker.state = 'to-outside-gate'; break; }
+          if (this.moveLumberjack(worker, { x: worker.target.x - 68, y: worker.target.y + index * 9 }, speed, dt)) {
+            worker.state = 'chopping';
+            worker.chopTimer = .25;
+          }
+          break;
+        case 'chopping': {
+          const tree = worker.target;
+          if (!tree?.alive) { worker.target = null; worker.state = 'to-outside-gate'; break; }
+          worker.chopTimer -= dt;
+          worker.container.rotation = Math.sin(this.simulationTime * 18) * .09;
+          if (worker.chopTimer > 0) break;
+          worker.chopTimer = Math.max(.22, .52 - level * .07);
+          tree.health -= 1;
+          tree.shakeUntil = this.simulationTime + .18;
+          this.spawnBurst(tree.x, tree.y - 38, 0xc08a52, 4);
+          if (tree.health > 0) break;
+          tree.alive = false;
+          tree.regrow = TIMBER.regrowSeconds;
+          tree.container.visible = false;
+          this.treeVersion += 1;
+          this.save.stats.woodChopped += TIMBER.logYield;
+          worker.carried = Math.min(TIMBER.logYield, 300 - this.save.station.lumber);
+          worker.target = null;
+          worker.state = 'return-outside-gate';
+          worker.container.rotation = 0;
+          this.audio.play('deposit', .55);
+          break;
+        }
+        case 'return-outside-gate':
+          if (this.moveLumberjack(worker, { x: ENTRY_OUTSIDE.x, y: ENTRY_OUTSIDE.y + index * 22 }, speed, dt)) worker.state = 'return-inside-gate';
+          break;
+        case 'return-inside-gate':
+          if (this.moveLumberjack(worker, { x: ENTRY_INSIDE.x, y: ENTRY_INSIDE.y + index * 22 }, speed, dt)) worker.state = 'return-yard';
+          break;
+        case 'return-yard':
+          if (this.moveLumberjack(worker, yard, speed, dt)) {
+            const delivered = Math.min(worker.carried, 300 - this.save.station.lumber);
+            this.save.station.lumber += delivered;
+            worker.carried = 0;
+            worker.state = this.save.station.lumber < 300 ? 'to-inside-gate' : 'idle';
+            if (delivered > 0) {
+              this.spawnGainLabel(1500, 1120, `+${delivered} LOGS`, 0xffd58b, 65);
+              this.spawnBurst(1500, 1120, BRAND.colors.timber, 7);
+              this.requestSave();
+            }
+          }
+          break;
+        default: break;
+      }
+      worker.cargo.clear();
+      for (let log = 0; log < worker.carried; log += 1) {
+        worker.cargo.roundRect(-13, -log * 7, 26, 7, 3).fill(log % 2 ? BRAND.colors.timber : 0xc28b58)
+          .stroke({ color: BRAND.colors.outline, width: 1.3 });
+      }
+    }
   }
 
   private updateCook(dt: number): void {
@@ -2812,7 +3034,11 @@ export class Game {
         pad.lockedUntilExit = true;
         if (pad.id === 'maxHealth') this.player.health = maxHealthFor(this.save.upgrades.maxHealth);
         if (pad.id === 'defense' || pad.id === 'gateArmor' || pad.id === 'compound') this.gateHealth = this.gateMaxHealth();
-        if (pad.id === 'weaponTier') drawWeapon(this.player.weapon, this.save.upgrades.weaponTier);
+        if (pad.id === 'weaponTier') {
+          drawWeapon(this.player.weapon, this.save.upgrades.weaponTier);
+          this.player.ammo = weaponMagazineFor(this.save.upgrades.weaponTier);
+          this.player.reloadTimer = 0;
+        }
         if (pad.id === 'compound') this.refreshCompoundVisuals();
         this.refreshWorldState();
         this.refreshPadVisuals();
@@ -2974,6 +3200,12 @@ export class Game {
     this.raidBreached = false;
     this.raidCashLost = 0;
     this.raidBankEmptyShown = false;
+    for (const post of this.defenders) {
+      if (!post.mobile) continue;
+      post.health = post.maxHealth;
+      post.alive = true;
+      post.container.visible = true;
+    }
     for (let index = 0; index < profile.count; index += 1) {
       const spawn = this.raidTrailPoint(index);
       const enemy = this.createEnemy('raider', spawn.x, spawn.y, true);
@@ -3016,9 +3248,32 @@ export class Game {
     for (let index = 0; index < this.defenders.length; index += 1) {
       const post = this.defenders[index]!;
       if (post.mobile) {
-        const phase = this.simulationTime * (.34 + (index % 3) * .035) + index * 1.7;
-        post.x = post.home.x + Math.cos(phase) * 90;
-        post.y = post.home.y + Math.sin(phase * .83) * 70;
+        post.healthBar.clear();
+        const ratio = clamp(post.health / post.maxHealth, 0, 1);
+        post.healthBar.roundRect(-30, -3, 60, 7, 3).fill(0x18303a).roundRect(-28, -1, 56 * ratio, 3, 2)
+          .fill(ratio > .35 ? BRAND.colors.safe : BRAND.colors.danger);
+        post.container.visible = post.alive;
+        if (!post.alive) continue;
+        if (this.raidState === 'active') {
+          let destination: Vec2;
+          if (post.x < ENTRY_INSIDE.x - 12) destination = { x: ENTRY_INSIDE.x, y: ENTRY_INSIDE.y + (index % 4 - 1.5) * 28 };
+          else if (post.x < ENTRY_OUTSIDE.x - 20) destination = { x: ENTRY_OUTSIDE.x, y: ENTRY_OUTSIDE.y + (index % 4 - 1.5) * 30 };
+          else {
+            const target = this.enemies.filter(enemy => enemy.isRaid && enemy.alive && enemy.state !== 'defeat')
+              .sort((a, b) => distanceSquared(a.x, a.y, post.x, post.y) - distanceSquared(b.x, b.y, post.x, post.y))[0];
+            const targetDistance = target ? Math.sqrt(distanceSquared(target.x, target.y, post.x, post.y)) : 0;
+            destination = target && targetDistance > post.range * .72 ? { x: target.x, y: target.y } : { x: post.x, y: post.y };
+          }
+          const direction = normalize(destination.x - post.x, destination.y - post.y);
+          const step = Math.min(direction.magnitude, post.speed * dt);
+          post.x += direction.x * step;
+          post.y += direction.y * step;
+          if (Math.abs(direction.x) > .04) post.container.scale.x = direction.x < 0 ? -1 : 1;
+        } else {
+          const phase = this.simulationTime * (.34 + (index % 3) * .035) + index * 1.7;
+          post.x = post.home.x + Math.cos(phase) * 90;
+          post.y = post.home.y + Math.sin(phase * .83) * 70;
+        }
         this.place(post.container, post.x, post.y, 35);
       }
       post.cooldown = Math.max(0, post.cooldown - dt);
@@ -3415,6 +3670,11 @@ export class Game {
     const cargoLoad = clamp((player.meat + player.fish + player.meals + player.fishMeals + player.wood) / 12, 0, 1);
     player.body.rotation = -cargoLoad * 0.1 + stepSway * .026;
     const weaponTier = this.save.upgrades.weaponTier;
+    const magazine = weaponMagazineFor(weaponTier);
+    player.ammoText.visible = player.alive && magazine > 0;
+    if (player.ammoText.visible) player.ammoText.text = player.reloadTimer > 0
+      ? `RELOADING ${player.reloadTimer.toFixed(1)}s`
+      : `${player.ammo} / ${magazine}`;
     const attackPhase = player.attackVisual > 0 ? 1 - player.attackVisual / .26 : 0;
     const chopPhase = player.chopVisual > 0 ? 1 - player.chopVisual / .3 : 0;
     const mainWeaponIsChopping = weaponTier === 1 && player.chopVisual > 0;
@@ -3683,23 +3943,26 @@ export class Game {
     }
   }
 
-  /** Three separate stacks fill to 100 in order, then remain ready for pickup. */
+  /** Three separate stacks fill to 100 in order; every stored log changes the silhouette. */
   private drawLumberYard(graphic: Graphics, amount: number): void {
     graphic.clear();
     for (let pile = 0; pile < 3; pile += 1) {
       const stored = clamp(amount - pile * 100, 0, 100);
-      const visibleLogs = Math.ceil(stored / 5);
-      const baseX = (pile - 1) * 42;
-      graphic.roundRect(baseX - 20, 2, 40, 8, 2).fill(0x5f432f);
-      for (let index = 0; index < visibleLogs; index += 1) {
-        const row = Math.floor(index / 4);
-        const column = index % 4;
-        const x = baseX + (column - 1.5) * 9;
-        const y = -row * 8 - (column % 2) * 2;
-        graphic.roundRect(x - 13, y - 4, 26, 8, 4).fill(index % 2 ? BRAND.colors.timber : shade(BRAND.colors.timber, .13))
-          .stroke({ color: BRAND.colors.outline, width: 1.4 });
-        graphic.circle(x + 10, y, 3).fill(0xd9ab74);
+      const baseX = (pile - 1) * 62;
+      graphic.roundRect(baseX - 28, 5, 56, 9, 2).fill(0x4c392b).stroke({ color: BRAND.colors.outline, width: 1.5 });
+      graphic.roundRect(baseX - 29, -43, 6, 54, 2).fill(0x6f4b31);
+      graphic.roundRect(baseX + 23, -43, 6, 54, 2).fill(0x6f4b31);
+      for (let index = 0; index < stored; index += 1) {
+        const row = Math.floor(index / 10);
+        const column = index % 10;
+        const x = baseX + (column - 4.5) * 5.2;
+        const y = -row * 4.5 - (column % 2) * .7;
+        graphic.roundRect(x - 4, y - 2.2, 8, 4.4, 2).fill(index % 2 ? BRAND.colors.timber : shade(BRAND.colors.timber, .14))
+          .stroke({ color: BRAND.colors.outline, width: .65 });
+        graphic.circle(x + 2.7, y, 1.2).fill(0xe0b27b);
       }
+      if (stored > 0) graphic.roundRect(baseX - 22, -Math.ceil(stored / 10) * 4.5 - 8, 44, 5, 2)
+        .fill({ color: BRAND.colors.snowHighlight, alpha: .72 });
     }
   }
 
@@ -3837,7 +4100,7 @@ export class Game {
     this.robotFoundry.visible = this.save.unlocks.whiteout;
     this.robotFoundry.alpha = this.save.upgrades.robots > 0 ? 1 : .46;
     this.robotVisuals.forEach((robot, index) => { robot.visible = this.save.unlocks.whiteout && index < this.save.upgrades.robots * 2; });
-    this.lumberjackVisuals.forEach((worker, index) => { worker.visible = index < this.save.upgrades.lumberjack; });
+    this.lumberjackVisuals.forEach((worker, index) => { worker.container.visible = index < this.save.upgrades.lumberjack; });
     this.hunterVisuals.forEach((worker, index) => { worker.visible = index < this.save.upgrades.hunters; });
     for (const child of this.world.children) {
       if (child instanceof Container && child !== this.player.container && child.label === 'dock-visual') child.visible = this.save.unlocks.dock;
