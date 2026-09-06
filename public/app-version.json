@@ -1,9 +1,8 @@
 {
-  "version": "1.7.0",
-  "releasedAt": "2026-09-05",
+  "version": "1.8.0",
+  "releasedAt": "2026-09-06",
   "notes": [
-    "The lumber yard is now one compact open stand split into three clearly framed 100-log sections.",
-    "Hired meal runners now check both the Cookout and frostfin smokehouse, carry distinct plates through the shoreline gate, and serve either meal to waiting villagers.",
-    "Frostfin deliveries also continue while away and leave their earnings in the outpost strongbox."
+    "Painted lumber-rack and ore-mine sprites now match the outpost's illustrated buildings, with live log stacks and accessible collection pads.",
+    "Carried stacks above 100 logs or raw meat transfer twice as fast at the Timber Post, Cookout, and timber expansion pads."
   ]
 }

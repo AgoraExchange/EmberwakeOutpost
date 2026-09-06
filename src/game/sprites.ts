@@ -13,6 +13,7 @@ import { assetPath } from './pathing';
 export type SpriteKey =
   | 'building/furnace' | 'building/cookout' | 'building/mess-hall'
   | 'building/smokehouse' | 'building/infirmary' | 'building/timber-post'
+  | 'building/lumber-yard' | 'building/ore-rig'
   | 'creature/rimeback' | 'creature/icehorn'
   | 'actor/trailwarden' | 'actor/trailwarden-unarmed' | 'actor/villager' | 'actor/worker' | 'actor/guard'
   | 'prop/tree' | 'prop/stump' | 'prop/rock' | 'prop/crates' | 'prop/barrel'
@@ -30,6 +31,8 @@ export const SPRITE_ANCHORS: Record<SpriteKey, [number, number]> = {
   'building/smokehouse': [0.5, 0.82],
   'building/infirmary': [0.5, 0.82],
   'building/timber-post': [0.5, 0.84],
+  'building/lumber-yard': [0.5, 0.92],
+  'building/ore-rig': [0.5, 0.86],
   'creature/rimeback': [0.5, 0.86],
   'creature/icehorn': [0.5, 0.86],
   'actor/trailwarden': [0.5, 0.88],
@@ -54,6 +57,7 @@ export const SPRITE_ANCHORS: Record<SpriteKey, [number, number]> = {
 export const SPRITE_WIDTHS: Record<SpriteKey, number> = {
   'building/furnace': 190, 'building/cookout': 250, 'building/mess-hall': 260,
   'building/smokehouse': 240, 'building/infirmary': 150, 'building/timber-post': 150,
+  'building/lumber-yard': 190, 'building/ore-rig': 300,
   'creature/rimeback': 150, 'creature/icehorn': 185,
   'actor/trailwarden': 110, 'actor/trailwarden-unarmed': 110, 'actor/villager': 95, 'actor/worker': 95, 'actor/guard': 100,
   'prop/tree': 150, 'prop/stump': 90, 'prop/rock': 120, 'prop/crates': 120,

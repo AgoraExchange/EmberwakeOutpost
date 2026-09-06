@@ -4,6 +4,13 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.8.0 — Illustrated industry and faster bulk deposits
+
+- The compact three-section lumber rack now uses painted timber, ironwork, snow caps, and a lantern; live stock still fills each section to 100 and can be collected by walking up.
+- The ore mine now has an illustrated drill derrick, conveyor, snowy stone base, and glowing copper machinery. Its upgrade pad and cash collection circle stay accessible.
+- Above 100 carried logs or raw meat, each transfer tick deposits two items instead of one. This doubles throughput at the Timber Post, Cookout, and timber expansion pads while preserving exact payments and contributions; normal speed resumes at 100 or fewer.
+- New transparent PNGs are included in the production offline cache. Source art and generation prompts are recorded in [the industry art notes](docs/industry-art.md).
+
 ## 1.7.0 — Frostfin meal runners
 
 - Hired meal runners now monitor both Cookout meals and ready frostfin plates, prioritize waiting fish orders, and walk through the shoreline gate to collect smokehouse food.

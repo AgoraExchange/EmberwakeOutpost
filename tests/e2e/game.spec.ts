@@ -94,6 +94,44 @@ test('offline crews leave collectible cash and three-pile lumber stock', async (
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.wood)).toBeGreaterThan(0);
 });
 
+test('large timber and meat hauls deposit at twice the rate with exact accounting', async ({ page, browserName, isMobile }) => {
+  test.skip(isMobile || browserName !== 'chromium', 'compare both transfer rates on the game clock once');
+  await page.addInitScript(() => localStorage.setItem('emberwake-save-v2', JSON.stringify({
+    version: 9, updatedAt: Date.now(), trailwardenName: 'Haul Tester', station: { meals: 4 }, tutorial: 'complete'
+  })));
+  await page.goto('/');
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  const results = await page.evaluate(async () => {
+    const api = window.__EMBERWAKE__;
+    const samples: Record<string, number> = {};
+    for (const resource of ['wood', 'meat'] as const) {
+      for (const amount of [100, 300]) {
+        api.teleport(830, 1250);
+        api.setWood(0);
+        api.setCargo(0, 0);
+        await new Promise(resolve => setTimeout(resolve, 180));
+        if (resource === 'wood') api.setWood(amount); else api.setCargo(amount, 0);
+        const before = api.getState();
+        api.teleport(resource === 'wood' ? 1480 : 1200, resource === 'wood' ? 1010 : 430);
+        while (api.getState().simulationTime - before.simulationTime < 1.2) {
+          await new Promise(resolve => setTimeout(resolve, 10));
+        }
+        const after = api.getState();
+        api.teleport(830, 1250);
+        const transferred = amount - after.player[resource];
+        samples[`${resource}${amount}`] = transferred / (after.simulationTime - before.simulationTime);
+        if (resource === 'wood' && after.cash - before.cash !== transferred * 8) throw new Error('Incorrect timber payment');
+        if (resource === 'meat' && after.station.rawMeat - before.station.rawMeat !== transferred) throw new Error('Lost deposited meat');
+      }
+    }
+    return samples;
+  });
+  for (const resource of ['wood', 'meat']) {
+    expect(results[`${resource}300`]! / results[`${resource}100`]!).toBeGreaterThan(1.8);
+    expect(results[`${resource}300`]! / results[`${resource}100`]!).toBeLessThan(2.2);
+  }
+});
+
 test('lumberjacks fell real trees and the shoreline crew pad is reachable', async ({ page, browserName, isMobile }) => {
   test.skip(isMobile || browserName !== 'chromium', 'exercise autonomous harvesting and shoreline collision once');
   test.setTimeout(55_000);

@@ -860,11 +860,15 @@ export class Game {
     }
     lumberDecor.moveTo(-76, -54).lineTo(76, -54).stroke({ color: 0xb27a48, width: 6, cap: 'round' });
     lumberDecor.moveTo(-74, -51).lineTo(74, -51).stroke({ color: BRAND.colors.snowHighlight, width: 3, alpha: .78, cap: 'round' });
+    const lumberArt = spriteFor('building/lumber-yard');
+    lumberDecor.visible = !lumberArt;
     lumberZone.addChild(lumberDecor);
+    if (lumberArt) lumberZone.addChild(lumberArt);
     const lumberPile = new Graphics();
-    lumberPile.position.set(0, -18);
+    lumberPile.label = lumberArt ? 'illustrated-rack' : 'fallback-rack';
+    lumberPile.position.set(0, lumberArt ? -32 : -18);
     const lumberStock = worldText('LOGS 0 / 300', 14, 0xffedc5, '900');
-    lumberStock.position.set(0, -72);
+    lumberStock.position.set(0, lumberArt ? -99 : -72);
     lumberZone.addChild(lumberPile, lumberStock);
     for (let index = 0; index < 3; index += 1) {
       const rest = { x: 1590 + index * 25, y: 1125 + index * 24 };
@@ -1450,7 +1454,11 @@ export class Game {
       this.fisherVisuals.push(fisher);
     }
 
-    const rig = isoBuilding({ halfWidth: 112, halfDepth: 72, height: 132, wallColor: 0x586873, roofColor: 0xe0a14f, label: 'SALVAGE RIG' });
+    const rig = isoBuilding({ halfWidth: 112, halfDepth: 72, height: 132, wallColor: 0x586873, roofColor: 0xe0a14f, label: 'SALVAGE RIG', art: 'building/ore-rig' });
+    if (rig.illustrated) {
+      rig.shadow.clear().ellipse(0, 8, 110, 38).fill({ color: BRAND.colors.ao, alpha: .18 });
+      if (rig.sign) rig.sign.y = -252;
+    }
     this.oreRigBuilding = rig.container;
     this.place(this.oreRigBuilding, 5050, 2380);
     this.oreRigBuilding.label = 'glacier-salvage-rig';
@@ -1464,6 +1472,7 @@ export class Game {
     rigMachinery.moveTo(-34, -53).lineTo(-26, -24).lineTo(-18, -53).closePath().fill(0xffad52).stroke({ color: BRAND.colors.outline, width: 2 });
     rigMachinery.moveTo(-64, -28).lineTo(55, 25).stroke({ color: 0x2e4652, width: 20 });
     for (let offset = -52; offset <= 42; offset += 19) rigMachinery.circle(offset, -22 + (offset + 52) * .43, 6).fill(0x9babb0).stroke({ color: BRAND.colors.outline, width: 1.5 });
+    rigMachinery.visible = !rig.illustrated;
     this.oreRigBuilding.addChild(rigMachinery);
     this.blockers.push({ x: 4938, y: 2308, width: 224, height: 144 });
     this.oreCashZone = this.makeInteractionZone(5200, 2470, 56, BRAND.colors.gold, 'COLLECT ORE CASH');
@@ -1753,9 +1762,10 @@ export class Game {
     if (this.player.wood <= 0 || this.sellTimer > 0) return;
     if (distanceSquared(this.player.x, this.player.y, WORLD.timberPost.x, WORLD.timberPost.y) > 70 ** 2) return;
     this.sellTimer = TIMBER.sellCadence;
-    this.player.wood -= 1;
-    this.save.stats.woodSold += 1;
-    const value = TIMBER.logValue;
+    const sold = this.player.wood > 100 ? 2 : 1;
+    this.player.wood -= sold;
+    this.save.stats.woodSold += sold;
+    const value = TIMBER.logValue * sold;
     this.save.cash += value;
     this.save.stats.totalCashEarned += value;
     this.streamParticle(this.player.x, this.player.y - 40, WORLD.timberPost.x, WORLD.timberPost.y - 20, 0x72dd8d);
@@ -2516,8 +2526,9 @@ export class Game {
     if (this.depositTimer > 0) return;
     if (nearMeat && this.player.meat > 0) {
       this.depositTimer = .06;
-      this.player.meat -= 1;
-      this.save.station.rawMeat += 1;
+      const deposited = this.player.meat > 100 ? 2 : 1;
+      this.player.meat -= deposited;
+      this.save.station.rawMeat += deposited;
       this.streamParticle(this.player.x, this.player.y - 20, WORLD.butcherInput.x, WORLD.butcherInput.y - 15, BRAND.colors.meat);
       this.audio.play('deposit', .6);
       this.onActualEvent('deliver');
@@ -3109,8 +3120,9 @@ export class Game {
       }
       if (this.deliverTimer > 0) continue;
       this.deliverTimer = 0.07;
-      this.player.wood -= 1;
-      pad.delivered += 1;
+      const deposited = Math.min(this.player.wood > 100 ? 2 : 1, pad.requires - pad.delivered);
+      this.player.wood -= deposited;
+      pad.delivered += deposited;
       this.save.contributions[pad.kind] = pad.delivered;
       this.streamParticle(this.player.x, this.player.y - 40, pad.x, pad.y - 30, BRAND.colors.timber);
       this.audio.play('build', .4);
@@ -3980,19 +3992,22 @@ export class Game {
   /** Three separate stacks fill to 100 in order; every stored log changes the silhouette. */
   private drawLumberYard(graphic: Graphics, amount: number): void {
     graphic.clear();
+    const illustrated = graphic.label === 'illustrated-rack';
+    const logWidth = illustrated ? 4.1 : 7.4;
+    const rowHeight = illustrated ? 2.8 : 4.5;
     for (let pile = 0; pile < 3; pile += 1) {
       const stored = clamp(amount - pile * 100, 0, 100);
-      const baseX = (pile - 1) * 53;
+      const baseX = (pile - 1) * (illustrated ? 48 : 53);
       for (let index = 0; index < stored; index += 1) {
         const row = Math.floor(index / 10);
         const column = index % 10;
-        const x = baseX + (column - 4.5) * 4.7;
-        const y = -row * 4.5 - (column % 2) * .7;
-        graphic.roundRect(x - 3.7, y - 2.2, 7.4, 4.4, 2).fill(index % 2 ? BRAND.colors.timber : shade(BRAND.colors.timber, .14))
-          .stroke({ color: BRAND.colors.outline, width: .65 });
-        graphic.circle(x + 2.7, y, 1.2).fill(0xe0b27b);
+        const x = baseX + (column - 4.5) * (illustrated ? 3.2 : 4.7);
+        const y = -row * rowHeight - (column % 2) * .4;
+        graphic.roundRect(x - logWidth / 2, y - rowHeight / 2, logWidth, rowHeight, 1.3)
+          .fill(index % 2 ? 0xb77943 : 0x956039).stroke({ color: BRAND.colors.outline, width: .45 });
+        graphic.circle(x + logWidth * .3, y, illustrated ? .7 : 1.2).fill(0xe0b27b);
       }
-      if (stored > 0) graphic.roundRect(baseX - 20, -Math.ceil(stored / 10) * 4.5 - 8, 40, 5, 2)
+      if (stored > 0 && !illustrated) graphic.roundRect(baseX - 20, -Math.ceil(stored / 10) * 4.5 - 8, 40, 5, 2)
         .fill({ color: BRAND.colors.snowHighlight, alpha: .72 });
     }
   }
