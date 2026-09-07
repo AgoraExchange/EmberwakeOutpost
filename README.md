@@ -4,6 +4,14 @@ Emberwake Outpost is an original, mobile-first arctic action-tycoon built as a s
 
 The game has no backend, accounts, tracking, ads, remote APIs, or paid services. After the first successful visit, the production build can relaunch offline.
 
+## 1.9.0 — Assignable robot workers
+
+- The Robot Foundry and its six utility workers now have illustrated sprites. Clear loading space keeps the robots and upgrade pad visible; walk nearby and tap a robot to assign or change its job.
+- Hunters attack actual bears, instantly bank 3.5× the bear's cash reward, and carry 3.5× meat to the Cookout. Loggers fell actual trees, alternate 10/11 logs per tree for an exact 3.5× yield, and sell their loads for $8 per log at the Timber Post.
+- Meal robots collect ready meat or frostfin plates and serve waiting villagers. Capacity is seven plates, or fourteen with a level-two cook; payments remain collectible at the strongbox. Ore robots travel to visible ore seams by the Salvage Rig, dig, and leave 3.5× crate-value earnings at its collection circle.
+- Job assignments, cargo, fractional rewards, partial mining work, and ore cash persist in schema v10. Changing jobs while loaded queues the new assignment until delivery finishes. Physical robot jobs run during active play; existing offline human crews and kitchen production continue as before.
+- The foundry's three tiers build two, four, then six assignable robots. Their former background salvage-speed bonus is replaced by these individual working jobs. Artwork prompts and source paths are in [the robot art notes](docs/robot-art.md).
+
 ## 1.8.0 — Illustrated industry and faster bulk deposits
 
 - The compact three-section lumber rack now uses painted timber, ironwork, snow caps, and a lantern; live stock still fills each section to 100 and can be collected by walking up.

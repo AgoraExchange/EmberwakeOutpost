@@ -15,6 +15,13 @@
   <body>
     <div id="game-shell">
       <div id="canvas-host" aria-label="Emberwake Outpost game world"></div>
+      <div id="robot-controls" aria-label="Nearby robots"></div>
+      <dialog id="robot-dialog" aria-labelledby="robot-title">
+        <div class="panel-heading"><h2 id="robot-title">Robot assignment</h2><button id="robot-close" class="icon-button" aria-label="Close robot assignment" type="button">×</button></div>
+        <p id="robot-status"></p>
+        <p class="robot-help">3.5× yield or plate capacity · Tap a nearby robot any time to change its job.</p>
+        <div id="robot-jobs"></div>
+      </dialog>
 
       <header id="hud" aria-live="polite">
         <div class="inventory-bar" aria-label="Carried resources">

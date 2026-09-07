@@ -69,6 +69,7 @@ export interface StationState {
   lumberProgress: number;
   hunterProgress: number;
   passiveCash: number;
+  robotOreCash: number;
 }
 
 export interface Stats {
@@ -87,6 +88,16 @@ export interface Stats {
   woodSold: number;
 }
 
+export type RobotJob = 'idle' | 'hunt' | 'timber' | 'serve' | 'ore';
+export interface RobotState extends Vec2 {
+  job: RobotJob;
+  pendingJob: RobotJob | null;
+  wood: number; meat: number; meals: number; fishMeals: number;
+  rewardRemainder: number;
+  woodRemainder: number;
+  oreWork: number;
+}
+
 export interface SaveData {
   version: number;
   updatedAt: number;
@@ -98,6 +109,7 @@ export interface SaveData {
   upgrades: Record<UpgradeId, number>;
   unlocks: Unlocks;
   station: StationState;
+  robots: RobotState[];
   tutorial: TutorialStep;
   stats: Stats;
   settings: Settings;

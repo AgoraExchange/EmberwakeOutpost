@@ -1,8 +1,9 @@
 {
-  "version": "1.8.0",
-  "releasedAt": "2026-09-06",
+  "version": "1.9.0",
+  "releasedAt": "2026-09-07",
   "notes": [
-    "Painted lumber-rack and ore-mine sprites now match the outpost's illustrated buildings, with live log stacks and accessible collection pads.",
-    "Carried stacks above 100 logs or raw meat transfer twice as fast at the Timber Post, Cookout, and timber expansion pads."
+    "Illustrated Robot Foundry and utility robots with nearby tap-to-assign controls.",
+    "Assign real bear hunting, tree chopping and timber sales, meat/fish serving, or ore mining with 3.5x resource yield or plate capacity.",
+    "Robot assignments, cargo, partial work and collectible ore earnings survive relaunches; reassigned robots finish their loaded delivery first."
   ]
 }

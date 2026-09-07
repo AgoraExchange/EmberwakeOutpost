@@ -9,6 +9,8 @@
   "building/timber-post",
   "building/lumber-yard",
   "building/ore-rig",
+  "building/robot-foundry",
+  "actor/robot",
   "creature/rimeback",
   "creature/icehorn",
   "prop/tree"

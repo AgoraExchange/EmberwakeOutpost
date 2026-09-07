@@ -55,6 +55,9 @@ import {
 import { saveProgress } from './save';
 import { finishOfflineCooking } from './progression';
 import { loadSprites } from './sprites';
+import { ROBOT_JOBS, ROBOT_MULTIPLIER, robotCargo, robotMealCapacity, robotMeatReward, robotWoodReward } from './robotRules';
+import { robotRoute } from './robotNavigation';
+import type { RobotJob, RobotState } from './types';
 import type { CargoKind, EnemyConfig, EnemyKind, EnemyState, Rect, SaveData, TutorialStep, UpgradeId, Vec2 } from './types';
 
 extensions.add(CullerPlugin);
@@ -76,6 +79,13 @@ interface GameCallbacks {
   respawn: () => void;
   save: (save: SaveData) => void;
   hint: (hint: InteractionHint | null, healing: boolean) => void;
+  robotInteract: (index: number) => void;
+}
+
+interface RobotEntity {
+  state: RobotState; container: Container; body: Container; cargo: Graphics; badge: Text;
+  button: HTMLButtonElement; targetTree: TreeEntity | null; targetBear: EnemyEntity | null;
+  route: Vec2[]; goal: Vec2 | null; retry: number; timer: number; status: string; visualKey: string;
 }
 
 interface PlayerEntity {
@@ -310,10 +320,11 @@ export class Game {
   private readonly fisherVisuals: Container[] = [];
   private readonly lumberjackVisuals: LumberjackWorker[] = [];
   private readonly hunterVisuals: Container[] = [];
-  private readonly robotVisuals: Container[] = [];
+  private readonly robots: RobotEntity[] = [];
   private oreRigBuilding!: Container;
   private robotFoundry!: Container;
   private oreCashZone!: Container;
+  private robotOreStock = worldText('', 13, 0xffedc5, '900');
   private chopCooldown = 0;
   private sellTimer = 0;
   private lumberPickupTimer = 0;
@@ -401,10 +412,10 @@ export class Game {
     this.gateHealth = this.gateMaxHealth();
     this.raidWave = Math.max(1, save.stats.raidsFaced + 1);
     // Saved ready stock has no saved visitors, so recreate one order per plate.
-    this.customerBearDemand = save.station.meals + save.station.cookMeals;
+    this.customerBearDemand = save.station.meals + save.station.cookMeals + save.robots.reduce((sum, r) => sum + r.meals, 0);
     this.cookSource = save.station.cookFishMeals > 0 ? 'fish' : 'meat';
     this.cookDelivering = save.station.cookMeals + save.station.cookFishMeals > 0;
-    this.customerFishDemand = save.station.fishMeals;
+    this.customerFishDemand = save.station.fishMeals + save.station.cookFishMeals + save.robots.reduce((sum, r) => sum + r.fishMeals, 0);
     this.particlePool = new Pool(() => new Graphics(), graphic => { graphic.clear(); graphic.removeFromParent(); }, 40);
     this.damagePool = new Pool(() => worldText('', 25, 0xffffff, '800'), text => { text.text = ''; text.removeFromParent(); }, 14);
   }
@@ -464,7 +475,7 @@ export class Game {
 
   start(): void { this.resume(); void this.audio.unlock(); }
   pause(): void { this.paused = true; this.accumulator = 0; this.app.stop(); }
-  resume(): void { this.paused = false; this.skipNextFrame = true; this.app.start(); this.app.canvas.focus(); }
+  resume(): void { this.input.clear(); this.paused = false; this.skipNextFrame = true; this.app.start(); this.app.canvas.focus(); }
   isPaused(): boolean { return this.paused; }
 
   applySettings(): void {
@@ -502,6 +513,8 @@ export class Game {
       cook: { ...this.cookPosition, carrying: this.save.station.cookMeals + this.save.station.cookFishMeals,
         carryingFish: this.save.station.cookFishMeals, delivering: this.cookDelivering },
       station: { ...this.save.station },
+      robots: this.robots.map((robot, index) => ({ index, ...robot.state, status: robot.status, route: robot.route.length,
+        screen: robot.container.getGlobalPosition() })),
       upgrades: { ...this.save.upgrades },
       unlocks: { ...this.save.unlocks },
       raidState: this.raidState,
@@ -1476,8 +1489,24 @@ export class Game {
     this.oreRigBuilding.addChild(rigMachinery);
     this.blockers.push({ x: 4938, y: 2308, width: 224, height: 144 });
     this.oreCashZone = this.makeInteractionZone(5200, 2470, 56, BRAND.colors.gold, 'COLLECT ORE CASH');
+    // Low ore seams give mining robots a visible work site without hiding a pad.
+    for (const node of [{ x: 4760, y: 2450 }, { x: 4940, y: 2620 }, { x: 5320, y: 2320 }]) {
+      const seam = new Graphics();
+      seam.ellipse(0, 4, 44, 21).fill({ color: BRAND.colors.ao, alpha: .18 });
+      seam.poly([-38, 0, -24, -23, 3, -30, 36, -8, 30, 16, -20, 18]).fill(0x415d70).stroke({ color: BRAND.colors.outline, width: 3 });
+      for (const [x, y, height] of [[-17, -3, 23], [4, -10, 34], [22, 1, 20]]) {
+        seam.poly([x! - 8, y!, x! - 5, y! - height!, x! + 3, y! - height! - 5, x! + 10, y! - 7, x!, y! + 5]).fill(0x71d9e5).stroke({ color: 0x23516b, width: 2 });
+        seam.moveTo(x!, y! - height! + 1).lineTo(x! + 2, y! - 5).stroke({ color: 0xc0faff, width: 3 });
+      }
+      this.place(seam, node.x, node.y, -1);
+      this.world.addChild(seam);
+    }
 
-    const foundry = isoBuilding({ halfWidth: 130, halfDepth: 84, height: 148, wallColor: 0x394f62, roofColor: 0x62cdd0, label: 'ROBOT FOUNDRY' });
+    const foundry = isoBuilding({ halfWidth: 130, halfDepth: 84, height: 148, wallColor: 0x394f62, roofColor: 0x62cdd0, label: 'ROBOT FOUNDRY', art: 'building/robot-foundry' });
+    if (foundry.illustrated) {
+      foundry.shadow.clear().ellipse(0, 10, 118, 44).fill({ color: BRAND.colors.ao, alpha: .18 });
+      if (foundry.sign) foundry.sign.y = -278;
+    }
     this.robotFoundry = foundry.container;
     this.place(this.robotFoundry, 7280, 3900);
     this.robotFoundry.label = 'whiteout-robot-foundry';
@@ -1492,12 +1521,33 @@ export class Game {
       body.roundRect(-11, -48, 22, 17, 5).fill(0xa8d9df).stroke({ color: BRAND.colors.outline, width: 2.5 });
       body.circle(-5, -40, 3).fill(0xffd166).circle(5, -40, 3).fill(0xffd166);
       body.moveTo(-9, 1).lineTo(-13, 13).moveTo(9, 1).lineTo(13, 13).stroke({ color: 0x3c5564, width: 6, cap: 'round' });
-      robot.addChild(shadow, body);
-      this.place(robot, 7110 + (index % 3) * 90, 4060 + Math.floor(index / 3) * 90, 35);
+      const art = spriteFor('actor/robot');
+      const actor = art ?? body;
+      const cargo = new Graphics();
+      const badge = worldText('', 11, 0xa5f4ff, '900');
+      badge.position.set(0, -126);
+      robot.addChild(shadow, actor, cargo, badge);
+      const state = this.save.robots[index]!;
+      this.place(robot, state.x, state.y, 35);
       robot.label = 'utility-robot';
       this.world.addChild(robot);
-      this.robotVisuals.push(robot);
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'robot-tap';
+      button.setAttribute('aria-label', `Assign robot ${index + 1}`);
+      button.innerHTML = '<span>Assign</span>';
+      button.hidden = true;
+      button.addEventListener('click', () => {
+        if (!this.robotInfo(index)?.near) return;
+        this.input.clear();
+        this.callbacks.robotInteract(index);
+      });
+      document.querySelector('#robot-controls')!.appendChild(button);
+      this.robots.push({ state, container: robot, body: actor, cargo, badge, button,
+        targetTree: null, targetBear: null, route: [], goal: null, retry: 0, timer: 0, status: 'Stand by', visualKey: '' });
     }
+    this.robotOreStock.position.set(0, -62);
+    this.oreCashZone.addChild(this.robotOreStock);
   }
 
   private buildDecorations(): void {
@@ -1534,7 +1584,12 @@ export class Game {
         trees.push([x, y, scale]);
       }
     }
-    for (const [x, y, scale] of trees) this.makeTree(x!, y!, scale!);
+    for (const [x, y, scale] of trees) {
+      // Preserve open loading space, robot berths, and readable industry pads.
+      if ((x >= 6980 && x <= 7520 && y >= 3760 && y <= 4510)
+        || (x >= 4650 && x <= 5440 && y >= 2220 && y <= 2760)) continue;
+      this.makeTree(x, y, scale);
+    }
     const rocks = [
       [1930, 700, 46], [2200, 480, 38], [2480, 1180, 54], [2150, 1600, 42], [2820, 900, 52],
       [3080, 1420, 48], [2650, 1750, 58], [1880, 1420, 40], [3220, 620, 44], [2380, 2020, 50]
@@ -1840,6 +1895,7 @@ export class Game {
     this.updateDrops(dt);
     this.updateProduction(dt);
     this.updateCook(dt);
+    this.updateRobots(dt);
     this.updateCustomers(dt);
     this.updateCash(dt);
     this.updateRaid(dt);
@@ -1917,7 +1973,9 @@ export class Game {
       || this.defenders.some(post => post.mobile && post.alive
         && distanceSquared(post.x, post.y, WORLD.campGate.x, WORLD.campGate.y) < radiusSquared);
     const breached = this.raidState === 'active' && this.raidBreached;
-    gate.heldOpen = playerNear || guestNear || crewNear || breached;
+    const robotNear = this.robots.some((robot, i) => i < this.save.upgrades.robots * 2
+      && distanceSquared(robot.state.x, robot.state.y, WORLD.campGate.x, WORLD.campGate.y) < radiusSquared);
+    gate.heldOpen = playerNear || guestNear || crewNear || robotNear || breached;
     gate.open = moveToward(gate.open, gate.heldOpen ? 1 : 0, dt * (gate.heldOpen ? 4.8 : 2.6));
 
     // Smooth the leaf travel and slide each half behind its neighbouring palisade.
@@ -2179,7 +2237,7 @@ export class Game {
     if (target) target.targetRing.visible = true;
   }
 
-  private damageEnemy(enemy: EnemyEntity, overrideDamage?: number, defenseHit = false): void {
+  private damageEnemy(enemy: EnemyEntity, overrideDamage?: number, defenseHit = false, robot?: RobotEntity): void {
     const damage = overrideDamage ?? weaponDamageFor(this.save.upgrades.weaponDamage, this.save.upgrades.weaponTier);
     enemy.health = Math.max(0, enemy.health - damage);
     enemy.state = enemy.health <= 0 ? 'defeat' : 'hurt';
@@ -2193,15 +2251,22 @@ export class Game {
       this.camera.shake = this.save.settings.reducedMotion ? 0 : enemy.health <= 0 ? 11 : 6;
       this.hitStop = this.save.settings.reducedMotion ? 0 : enemy.health <= 0 ? 0.055 : 0.028;
     }
-    if (enemy.health <= 0) this.defeatEnemy(enemy);
+    if (enemy.health <= 0) this.defeatEnemy(enemy, robot);
   }
 
-  private defeatEnemy(enemy: EnemyEntity): void {
+  private defeatEnemy(enemy: EnemyEntity, robot?: RobotEntity): void {
     if (enemy.dropped) return;
     enemy.dropped = true;
     enemy.targetRing.visible = false;
     enemy.alert.visible = false;
     this.save.stats.bearsDefeated += 1;
+    if (robot) {
+      const cash = (enemy.isRaid ? raidKillCashForWave(this.raidWave) : enemy.cashReward) * ROBOT_MULTIPLIER;
+      this.bankRobotCash(cash, robot.state);
+      robot.state.meat += robotMeatReward(robot.state, enemy.config.meatYield);
+      this.requestSave();
+      return;
+    }
     for (let index = 0; index < enemy.config.meatYield; index += 1) {
       const angle = (index / enemy.config.meatYield) * Math.PI * 2 + Math.random() * 0.4;
       this.createCargoDrop('meat', enemy.x + Math.cos(angle) * 35, enemy.y + Math.sin(angle) * 25, 1, enemy.isRaid ? 300 : 45);
@@ -2592,7 +2657,7 @@ export class Game {
 
     const rigLevel = this.save.upgrades.oreRig;
     if (this.save.unlocks.glacier && rigLevel > 0) {
-      const interval = Math.max(2.8, 10 - rigLevel * .85 - this.save.upgrades.robots * .7);
+      const interval = Math.max(2.8, 10 - rigLevel * .85);
       this.save.station.oreProgress += dt / interval;
       const uncollected = this.cashDrops.filter(drop => distanceSquared(drop.x, drop.y, 5200, 2470) < 150 ** 2).length;
       if (this.save.station.oreProgress >= 1 && uncollected < 12) {
@@ -2650,6 +2715,205 @@ export class Game {
       if (distance < best) { best = distance; target = tree; }
     }
     return target;
+  }
+
+  robotInfo(index: number) {
+    const robot = this.robots[index];
+    if (!robot || !this.save.unlocks.whiteout || index >= this.save.upgrades.robots * 2) return null;
+    return { index, ...robot.state, status: robot.status,
+      near: this.player.alive && distanceSquared(this.player.x, this.player.y, robot.state.x, robot.state.y) < 230 ** 2,
+      jobs: (Object.keys(ROBOT_JOBS) as RobotJob[]).map(job => ({ job, ...ROBOT_JOBS[job],
+        enabled: job !== 'ore' || this.save.upgrades.oreRig > 0 })) };
+  }
+
+  assignRobot(index: number, job: RobotJob): boolean {
+    const info = this.robotInfo(index), robot = this.robots[index];
+    if (!robot || !info?.near || !Object.hasOwn(ROBOT_JOBS, job)
+      || (job === 'ore' && this.save.upgrades.oreRig <= 0)) return false;
+    if (robotCargo(robot.state) > 0) robot.state.pendingJob = job;
+    else {
+      robot.state.job = job; robot.state.pendingJob = null;
+      robot.targetTree = null; robot.targetBear = null; robot.route = []; robot.goal = null; robot.timer = 0;
+    }
+    this.requestSave();
+    return true;
+  }
+
+  private bankRobotCash(value: number, origin: Vec2): void {
+    this.save.cash += value;
+    this.save.stats.totalCashEarned += value;
+    this.spawnGainLabel(origin.x, origin.y, `+$${value} BANKED`, BRAND.colors.gold, 85);
+    this.audio.play('cash', .5);
+  }
+
+  private moveRobot(robot: RobotEntity, goal: Vec2, dt: number, reach = 45): boolean {
+    const state = robot.state;
+    if (Math.hypot(state.x - goal.x, state.y - goal.y) < reach) { robot.route = []; return true; }
+    if ((!robot.goal || Math.hypot(robot.goal.x - goal.x, robot.goal.y - goal.y) > 70 || !robot.route.length) && robot.retry <= 0) {
+      robot.route = robotRoute(state, goal, this.getActiveBlockers(), WORLD.width, WORLD.height);
+      robot.goal = { ...goal }; robot.retry = 1.5;
+    }
+    const waypoint = robot.route[0];
+    if (!waypoint) { robot.status = 'Finding a clear route'; return false; }
+    const direction = normalize(waypoint.x - state.x, waypoint.y - state.y);
+    const step = Math.min(direction.magnitude, (290 + this.save.upgrades.robots * 25) * dt);
+    const next = { x: state.x + direction.x * step, y: state.y + direction.y * step };
+    // Replan if a tree has regrown on the route or new walls have been purchased.
+    if (this.getActiveBlockers().some(b => circleRectCollision(next.x, next.y, 10, b))
+      && !this.getActiveBlockers().some(b => circleRectCollision(state.x, state.y, 10, b))) {
+      robot.route = []; return false;
+    }
+    state.x = next.x; state.y = next.y;
+    if (direction.magnitude <= step + .1) robot.route.shift();
+    robot.body.scale.x = Math.abs(robot.body.scale.x) * (facesLeft(direction.x, direction.y) ? -1 : 1);
+    robot.body.y = this.save.settings.reducedMotion ? 0 : -Math.abs(Math.sin(this.simulationTime * 9)) * 3;
+    return false;
+  }
+
+  private updateRobots(dt: number): void {
+    for (let index = 0; index < this.robots.length; index++) {
+      const robot = this.robots[index]!, state = robot.state;
+      if (!this.save.unlocks.whiteout || index >= this.save.upgrades.robots * 2) continue;
+      robot.retry = Math.max(0, robot.retry - dt);
+      robot.timer = Math.max(0, robot.timer - dt);
+      robot.body.rotation = 0; robot.body.y = 0;
+      if (robotCargo(state) === 0 && state.pendingJob !== null) {
+        state.job = state.pendingJob; state.pendingJob = null; robot.goal = null; robot.route = [];
+        robot.targetTree = null; robot.targetBear = null; robot.timer = 0; this.requestSave();
+      }
+      // Deliveries take precedence, including after a save is resumed or a new job is requested.
+      if (state.wood > 0) {
+        robot.status = `Selling ${state.wood} logs`;
+        if (this.moveRobot(robot, WORLD.timberPost, dt)) {
+          this.bankRobotCash(state.wood * TIMBER.logValue, state);
+          this.save.stats.woodSold += state.wood; state.wood = 0; this.requestSave();
+        }
+      } else if (state.meat > 0) {
+        robot.status = `Delivering ${state.meat} meat`;
+        if (this.moveRobot(robot, WORLD.butcherInput, dt)) {
+          this.save.station.rawMeat += state.meat;
+          this.spawnGainLabel(state.x, state.y, `+${state.meat} MEAT`, BRAND.colors.meat, 80);
+          state.meat = 0; this.requestSave();
+        }
+      } else if (state.meals + state.fishMeals > 0) {
+        robot.status = `Serving ${state.meals + state.fishMeals} plates`;
+        if (this.moveRobot(robot, { x: 760, y: 700 }, dt, 50) && robot.timer <= 0) {
+          const customer = this.customers.find(c => c.entered && c.state === 'waiting');
+          if (customer) { this.tryServeCustomer(customer, false, robot); robot.timer = .22; }
+        }
+      } else if (state.job === 'timber') {
+        if (!robot.targetTree?.alive) {
+          const reserved = new Set(this.robots.filter(r => r !== robot).map(r => r.targetTree));
+          for (const worker of this.lumberjackVisuals) if (worker.target) reserved.add(worker.target);
+          robot.targetTree = this.trees.filter(t => t.alive && t.x >= WILD_EAST_EDGE && !reserved.has(t))
+            .sort((a, b) => distanceSquared(state.x, state.y, a.x, a.y) - distanceSquared(state.x, state.y, b.x, b.y))[0] ?? null;
+          robot.goal = null; robot.route = [];
+        }
+        const tree = robot.targetTree;
+        robot.status = tree ? 'Travelling to tree' : 'Waiting for a tree';
+        if (tree && this.moveRobot(robot, tree, dt, 145)) {
+          robot.status = 'Chopping tree';
+          robot.body.rotation = Math.sin(this.simulationTime * 16) * .08;
+          if (robot.timer <= 0) {
+            robot.timer = .32; tree.health -= 1; tree.shakeUntil = this.simulationTime + .2;
+            this.streamParticle(state.x, state.y - 40, tree.x, tree.y - 40, BRAND.colors.timber);
+            this.spawnBurst(tree.x, tree.y - 20, BRAND.colors.timber, 5);
+            if (tree.health <= 0) {
+              tree.alive = false; tree.regrow = TIMBER.regrowSeconds; tree.container.visible = false; this.treeVersion++;
+              state.wood = robotWoodReward(state, TIMBER.logYield);
+              this.save.stats.woodChopped += state.wood;
+              robot.targetTree = null; robot.goal = null; robot.route = []; this.requestSave();
+            }
+          }
+        }
+      } else if (state.job === 'hunt') {
+        if (!robot.targetBear?.alive || robot.targetBear.health <= 0) {
+          const reserved = new Set(this.robots.filter(r => r !== robot).map(r => r.targetBear));
+          robot.targetBear = this.enemies.filter(e => e.alive && e.health > 0 && e.state !== 'respawn' && !reserved.has(e))
+            .sort((a, b) => distanceSquared(state.x, state.y, a.x, a.y) - distanceSquared(state.x, state.y, b.x, b.y))[0] ?? null;
+          robot.goal = null; robot.route = [];
+        }
+        const bear = robot.targetBear;
+        robot.status = bear ? 'Tracking bear' : 'Waiting for wildlife';
+        if (bear && this.moveRobot(robot, bear, dt, 145)) {
+          robot.status = 'Hunting bear';
+          robot.body.rotation = Math.sin(this.simulationTime * 16) * .06;
+          if (robot.timer <= 0) {
+            robot.timer = .5;
+            this.streamParticle(state.x, state.y - 50, bear.x, bear.y - 40, 0x75e9ff);
+            this.damageEnemy(bear, 35 + this.save.upgrades.robots * 10, true, robot);
+            if (bear.health <= 0) { robot.targetBear = null; robot.goal = null; robot.route = []; }
+          }
+        }
+      } else if (state.job === 'serve') {
+        const fish = this.save.unlocks.dock && this.save.station.fishMeals > 0;
+        const meat = this.save.station.meals > 0;
+        // Keep the chosen source while travelling, switching only if its stock disappears.
+        const source = fish && (!meat || robot.goal?.y === WORLD.fishCounter.y || this.customerFishDemand > this.customerBearDemand)
+          ? WORLD.fishCounter : meat ? WORLD.butcherOutput : null;
+        robot.status = source ? 'Collecting ready plates' : 'Waiting for ready plates';
+        if (source && this.moveRobot(robot, source, dt)) {
+          const isFish = source === WORLD.fishCounter;
+          const quantity = Math.min(robotMealCapacity(this.save.upgrades.worker), isFish ? this.save.station.fishMeals : this.save.station.meals);
+          if (isFish) { this.save.station.fishMeals -= quantity; state.fishMeals = quantity; }
+          else { this.save.station.meals -= quantity; state.meals = quantity; }
+          robot.route = []; robot.goal = null; this.requestSave();
+        }
+      } else if (state.job === 'ore' && this.save.upgrades.oreRig > 0) {
+        const nodes = [{ x: 4760, y: 2450 }, { x: 4940, y: 2620 }, { x: 5320, y: 2320 }];
+        const node = nodes[index % nodes.length]!;
+        const workSpot = { x: node.x + (index < 3 ? -70 : 70), y: node.y + 70 };
+        robot.status = 'Travelling to ore';
+        if (this.moveRobot(robot, workSpot, dt, 25)) {
+          robot.status = 'Mining ore';
+          robot.body.rotation = Math.sin(this.simulationTime * 14) * .09;
+          if (robot.timer <= 0) {
+            robot.timer = .65;
+            this.streamParticle(state.x, state.y - 45, node.x, node.y - 12, 0x75e9ff);
+            this.spawnBurst(node.x, node.y - 12, 0x75e9ff, 3);
+          }
+          state.oreWork += dt;
+          const interval = Math.max(2.8, 10 - this.save.upgrades.oreRig * .85);
+          if (state.oreWork >= interval) {
+            state.oreWork -= interval;
+            const value = (12 + this.save.upgrades.oreRig * 8) * ROBOT_MULTIPLIER;
+            this.save.station.robotOreCash += value;
+            this.spawnBurst(node.x, node.y, 0x75e9ff, 9);
+            this.spawnGainLabel(node.x, node.y, `+$${value} ORE`, BRAND.colors.gold, 80);
+            this.requestSave();
+          }
+        }
+      } else robot.status = state.job === 'ore' ? 'Build a Salvage Rig' : 'Stand by';
+      this.place(robot.container, state.x, state.y, 35);
+      robot.badge.text = `R${index + 1} · ${ROBOT_JOBS[state.job].label}`;
+      const key = `${state.wood}|${state.meat}|${state.meals}|${state.fishMeals}`;
+      if (key !== robot.visualKey) {
+        robot.visualKey = key; robot.cargo.clear();
+        const total = robotCargo(state);
+        for (let item = 0; item < Math.min(total, 28); item++) {
+          const x = -28 + Math.floor(item / 7) * 12, y = -54 - item % 7 * 5;
+          if (state.wood) robot.cargo.roundRect(x - 12, y, 24, 5, 2).fill(0xad7444).stroke({ color: BRAND.colors.outline, width: 1 });
+          else {
+            if (state.meals + state.fishMeals) robot.cargo.ellipse(x, y, 12, 4).fill(0xffedcf);
+            robot.cargo.ellipse(x, y - 1, 8, 3).fill(state.fishMeals ? BRAND.colors.fish : state.meat ? BRAND.colors.meat : BRAND.colors.ember);
+          }
+        }
+      }
+    }
+    this.robotOreStock.text = this.save.station.robotOreCash > 0 ? `ROBOT ORE $${this.save.station.robotOreCash}` : '';
+  }
+
+  private updateRobotControls(): void {
+    for (let index = 0; index < this.robots.length; index++) {
+      const robot = this.robots[index]!;
+      robot.button.hidden = this.paused || !this.robotInfo(index)?.near || this.isWorldPointOffCamera(robot.state.x, robot.state.y, 0);
+      if (robot.button.hidden) continue;
+      const point = robot.container.getGlobalPosition();
+      robot.button.style.left = `${point.x}px`;
+      robot.button.style.top = `${point.y}px`;
+      robot.button.style.width = `${Math.max(54, 90 * this.viewScale)}px`;
+      robot.button.style.height = `${Math.max(80, 120 * this.viewScale)}px`;
+    }
   }
 
   private updateLumberjacks(dt: number): void {
@@ -2969,12 +3233,12 @@ export class Game {
   }
 
   /** A guest takes one actual carried meal, from either the player or hired cook. */
-  private tryServeCustomer(customer: CustomerEntity, servedByCook = false): void {
+  private tryServeCustomer(customer: CustomerEntity, servedByCook = false, robot?: RobotEntity): void {
     // The bubble is a preference, never a queue deadlock. A guest takes the other
     // cooked plate if their preferred dish is unavailable, so batches always clear.
-    const servingFish = servedByCook ? this.save.station.cookFishMeals > 0
+    const servingFish = robot ? robot.state.fishMeals > 0 : servedByCook ? this.save.station.cookFishMeals > 0
       : this.player.fishMeals > 0 && (customer.wantsFish || this.player.meals <= 0);
-    const carried = servedByCook
+    const carried = robot ? (servingFish ? robot.state.fishMeals : robot.state.meals) : servedByCook
       ? servingFish ? this.save.station.cookFishMeals : this.save.station.cookMeals
       : servingFish ? this.player.fishMeals : this.player.meals;
     if (carried <= 0) {
@@ -2988,11 +3252,13 @@ export class Game {
       : mealValueFor(this.save.upgrades.saleValue);
     const result = purchaseMeal(carried, unit);
     if (!result.sold) return;
-    if (servedByCook && servingFish) this.save.station.cookFishMeals = result.ready;
+    if (robot && servingFish) robot.state.fishMeals = result.ready;
+    else if (robot) robot.state.meals = result.ready;
+    else if (servedByCook && servingFish) this.save.station.cookFishMeals = result.ready;
     else if (servedByCook) this.save.station.cookMeals = result.ready;
     else if (servingFish) this.player.fishMeals = result.ready;
     else this.player.meals = result.ready;
-    const server = servedByCook ? this.cookPosition : this.player;
+    const server = robot ? robot.state : servedByCook ? this.cookPosition : this.player;
     this.streamParticle(server.x, server.y - 40, customer.x, customer.y - 30,
       servingFish ? BRAND.colors.fish : BRAND.colors.gold);
 
@@ -3028,6 +3294,11 @@ export class Game {
 
   private updateCash(_dt: number): void {
     if (!this.player.alive) return;
+    if (this.save.station.robotOreCash > 0 && distanceSquared(this.player.x, this.player.y, 5200, 2470) < 62 ** 2) {
+      const value = this.save.station.robotOreCash;
+      this.save.station.robotOreCash = 0;
+      this.bankRobotCash(value, this.player); this.requestSave();
+    }
     if (this.save.station.passiveCash > 0
       && distanceSquared(this.player.x, this.player.y, WORLD.cashZone.x, WORLD.cashZone.y) < 62 ** 2) {
       const value = this.save.station.passiveCash;
@@ -3580,6 +3851,7 @@ export class Game {
 
   private render(frameDelta: number): void {
     this.updateCamera(false);
+    this.updateRobotControls();
     this.renderPlayer();
     this.renderEnemies();
     this.renderTrees();
@@ -4145,7 +4417,7 @@ export class Game {
     this.oreCashZone.visible = this.save.unlocks.glacier && this.save.upgrades.oreRig > 0;
     this.robotFoundry.visible = this.save.unlocks.whiteout;
     this.robotFoundry.alpha = this.save.upgrades.robots > 0 ? 1 : .46;
-    this.robotVisuals.forEach((robot, index) => { robot.visible = this.save.unlocks.whiteout && index < this.save.upgrades.robots * 2; });
+    this.robots.forEach((robot, index) => { robot.container.visible = this.save.unlocks.whiteout && index < this.save.upgrades.robots * 2; });
     this.lumberjackVisuals.forEach((worker, index) => { worker.container.visible = index < this.save.upgrades.lumberjack; });
     this.hunterVisuals.forEach((worker, index) => { worker.visible = index < this.save.upgrades.hunters; });
     for (const child of this.world.children) {

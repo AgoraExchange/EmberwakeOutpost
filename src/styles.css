@@ -250,6 +250,23 @@ button { -webkit-tap-highlight-color: transparent; }
   #interaction-progress { transition: none; }
 }
 
+#robot-controls { position: absolute; inset: 0; z-index: 12; pointer-events: none; overflow: hidden; }
+.robot-tap { position: absolute; transform: translate(-50%, -85%); background: transparent; border: 0; padding: 0; pointer-events: auto; touch-action: manipulation; cursor: pointer; }
+.robot-tap[hidden] { display: none; }
+.robot-tap span { position: absolute; bottom: -14px; left: 50%; transform: translateX(-50%); border: 1px solid #7eddeb; border-radius: 12px; padding: 4px 9px; background: #163c49; color: #e7ffff; font-size: 12px; white-space: nowrap; }
+.robot-tap:focus-visible { outline: 3px solid #ffd166; border-radius: 16px; }
+#robot-dialog { width: min(480px, calc(100vw - 28px)); max-height: calc(100dvh - 36px); overflow-y: auto; border: 2px solid #71b8c4; border-radius: 20px; padding: 20px; background: #132f3b; color: #fff4dc; box-shadow: 0 16px 60px #0008; }
+#robot-dialog::backdrop { background: #04141db8; }
+#robot-dialog h2 { font-size: 22px; margin: 0; }
+#robot-dialog p { line-height: 1.45; margin: 12px 0; }
+.robot-help { color: #acdae0; font-size: 13px; }
+#robot-jobs { display: grid; gap: 9px; }
+.robot-job { display: grid; gap: 5px; text-align: left; padding: 13px; border: 1px solid #527984; border-radius: 12px; background: #234651; color: #fff5db; cursor: pointer; }
+.robot-job strong { font-size: 16px; }
+.robot-job span { font-size: 13px; line-height: 1.45; color: #cce3e6; }
+.robot-job[aria-pressed="true"] { border: 2px solid #ffd166; background: #34555b; }
+.robot-job:disabled { opacity: .5; cursor: default; }
+
 #raid-banner {
   position: absolute;
   z-index: 22;

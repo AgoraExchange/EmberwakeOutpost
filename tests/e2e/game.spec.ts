@@ -15,12 +15,13 @@ declare global {
         defense: { level: number; kind: string; posts: number; warriors: number; warriorHealth: number[]; shots: number };
         wardenPositions: Array<{ x: number; y: number; health: number }>;
         lumberjacks: Array<{ x: number; y: number; state: string; carried: number; target: { x: number; y: number } | null }>;
+        robots: Array<import('../../src/game/types').RobotState & { status: string; route: number; screen: { x: number; y: number } }>;
         cargoAnchor: { x: number; y: number; bottom: number };
         customers: number;
         customerDemand: number;
         waitingCustomers: number;
         cook: { x: number; y: number; carrying: number; carryingFish: number; delivering: boolean };
-        station: { cookMeals: number; cookFishMeals: number; rawMeat: number; meals: number; rawFish: number; fishMeals: number; lumber: number; passiveCash: number };
+        station: { cookMeals: number; cookFishMeals: number; rawMeat: number; meals: number; rawFish: number; fishMeals: number; lumber: number; passiveCash: number; robotOreCash: number };
         upgrades: Record<string, number>;
         unlocks: { zone2: boolean; dock: boolean; glacier: boolean; whiteout: boolean; raidSeen: boolean };
         raidState: string;

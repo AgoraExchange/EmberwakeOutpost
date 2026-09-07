@@ -28,6 +28,7 @@ export class InputController {
   }
 
   setMode(mode: JoystickMode): void { this.mode = mode; this.applyMode(); }
+  clear(): void { this.reset(); this.applyMode(); }
 
   update(): Vec2 {
     if (this.pointerId !== null) return this.move;

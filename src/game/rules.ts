@@ -1,5 +1,6 @@
 import { DEFAULT_SETTINGS, ECONOMY, UPGRADES, UPGRADE_BY_ID } from './config';
 import type { SaveData, UpgradeId } from './types';
+import { createRobotState } from './robotRules';
 
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
@@ -143,14 +144,15 @@ export function createUpgradeLevels(): Record<UpgradeId, number> {
 
 export function createDefaultSave(): SaveData {
   return {
-    version: 9,
+    version: 10,
     updatedAt: Date.now(),
     trailwardenName: '',
     cash: 0,
     contributions: {},
     upgrades: createUpgradeLevels(),
     unlocks: { zone2: false, dock: false, glacier: false, whiteout: false, raidSeen: false },
-    station: { cookMeals: 0, cookFishMeals: 0, rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0, fisherProgress: 0, oreProgress: 0, lumber: 0, lumberProgress: 0, hunterProgress: 0, passiveCash: 0 },
+    station: { cookMeals: 0, cookFishMeals: 0, rawMeat: 0, meals: 0, rawFish: 0, fishMeals: 0, butcherProgress: 0, fishProgress: 0, fisherProgress: 0, oreProgress: 0, lumber: 0, lumberProgress: 0, hunterProgress: 0, passiveCash: 0, robotOreCash: 0 },
+    robots: Array.from({ length: 6 }, (_, i) => createRobotState(i)),
     tutorial: 'move',
     stats: { bearsDefeated: 0, totalCashEarned: 0, mealsSold: 0, fishCaught: 0, deaths: 0, raidsWon: 0, raidsFaced: 0, playSeconds: 0, woodChopped: 0, woodSold: 0 },
     settings: { ...DEFAULT_SETTINGS }

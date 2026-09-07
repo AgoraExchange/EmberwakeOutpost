@@ -43,7 +43,7 @@ const appVersion = requireElement<HTMLElement>('#app-version');
 
 document.documentElement.style.setProperty('--key-art-url', `url("${assetPath('art/emberwake-key-art.webp')}")`);
 
-const APP_VERSION = '1.8.0';
+const APP_VERSION = '1.9.0';
 const VERSION_URL = assetPath('app-version.json');
 const AUTOMATED_BROWSER = navigator.webdriver === true;
 
@@ -232,7 +232,7 @@ function openOutpost(): void {
     ['Eastern Frontier', 'More hunting grounds and furnace upgrades.', save.unlocks.zone2 ? 'OPEN' : `${30 - (save.contributions.zone2 ?? 0)} timber remaining`],
     ['Shoreline Works', 'Fishery upgrades, hired fishing crews, smokehouse plates, and premium guests.', save.unlocks.dock ? `${UPGRADE_BY_ID.fishery.effectText(save.upgrades.fishery)} · ${UPGRADE_BY_ID.fisher.effectText(save.upgrades.fisher)}` : `${45 - (save.contributions.dock ?? 0)} timber remaining`],
     ['Glacier Reach', 'A buildable salvage rig creates physical ore-cash crates to collect.', save.unlocks.glacier ? UPGRADE_BY_ID.oreRig.effectText(save.upgrades.oreRig) : `$${650 - (save.contributions.glacier ?? 0)} · Eastern Frontier required`],
-    ['Whiteout Expanse', 'A robot foundry builds utility crews that accelerate remote industry.', save.unlocks.whiteout ? UPGRADE_BY_ID.robots.effectText(save.upgrades.robots) : `$${1600 - (save.contributions.whiteout ?? 0)} · Glacier Reach required`]
+    ['Whiteout Expanse', 'Tap nearby robots to assign hunting, timber sales, meal delivery, or ore mining.', save.unlocks.whiteout ? UPGRADE_BY_ID.robots.effectText(save.upgrades.robots) : `$${1600 - (save.contributions.whiteout ?? 0)} · Glacier Reach required`]
   ]);
   requireElement('#outpost-screen').classList.add('visible');
   requireElement('#outpost-screen').setAttribute('aria-hidden', 'false');
@@ -286,6 +286,36 @@ function bindSettings(): void {
   syncControls();
 }
 
+function openRobotMenu(index: number): void {
+  const info = game.robotInfo(index);
+  if (!info?.near) return;
+  game.pause();
+  const dialog = requireElement<HTMLDialogElement>('#robot-dialog');
+  requireElement('#robot-title').textContent = `Robot ${index + 1} · Assign a job`;
+  const cargo = [info.wood ? `${info.wood} logs` : '', info.meat ? `${info.meat} meat` : '',
+    info.meals + info.fishMeals ? `${info.meals + info.fishMeals} plates` : ''].filter(Boolean).join(', ');
+  requireElement('#robot-status').textContent = `${info.status}${cargo ? ` · Carrying ${cargo}. It will deliver this cargo before changing jobs.` : ''}`;
+  const jobs = requireElement('#robot-jobs');
+  jobs.replaceChildren();
+  for (const option of info.jobs) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'robot-job';
+    button.dataset.job = option.job;
+    button.setAttribute('aria-pressed', String((info.pendingJob ?? info.job) === option.job));
+    const title = document.createElement('strong'); title.textContent = option.label;
+    const detail = document.createElement('span'); detail.textContent = option.enabled ? option.description : 'Build a Salvage Rig first.';
+    button.append(title, detail); button.disabled = !option.enabled;
+    button.addEventListener('click', () => {
+      if (game.assignRobot(index, option.job)) {
+        showToast(`Robot ${index + 1} · ${option.label}${cargo ? ' after delivery' : ''}`);
+        dialog.close();
+      }
+    });
+    jobs.appendChild(button);
+  }
+  dialog.showModal();
+}
+
 async function bootstrap(): Promise<void> {
   currentSave = await loadSave();
   const away = finishOfflineCooking(currentSave);
@@ -322,10 +352,14 @@ async function bootstrap(): Promise<void> {
       defeatScreen.setAttribute('aria-hidden', 'true');
       showToast('Warm again · 3 seconds of protection');
     },
-    save: save => { currentSave = save; }
+    save: save => { currentSave = save; },
+    robotInteract: openRobotMenu
   });
 
   bindSettings();
+  const robotDialog = requireElement<HTMLDialogElement>('#robot-dialog');
+  requireElement('#robot-close').addEventListener('click', () => robotDialog.close());
+  robotDialog.addEventListener('close', () => { game.resume(); });
   pauseButton.addEventListener('click', openPause);
   requireElement('#outpost-button').addEventListener('click', openOutpost);
   requireElement('#outpost-close').addEventListener('click', () => {
@@ -336,6 +370,7 @@ async function bootstrap(): Promise<void> {
   });
   resumeButton.addEventListener('click', closePause);
   window.addEventListener('keydown', event => {
+    if (robotDialog.open) return;
     if (event.key === 'Escape') {
       if (game.isPaused()) closePause();
       else openPause();

@@ -1,6 +1,8 @@
 import { createDefaultSave, upgradeCost } from './rules';
 import type { SaveData, Settings, UpgradeId } from './types';
 import { ECONOMY, UPGRADES } from './config';
+import { ROBOT_JOBS, createRobotState } from './robotRules';
+import type { RobotJob } from './types';
 
 const DB_NAME = 'emberwake-outpost';
 const STORE_NAME = 'saves';
@@ -53,7 +55,7 @@ export function migrateSave(input: unknown): SaveData {
     return defaults;
   }
 
-  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6 && source.version !== 7 && source.version !== 8 && source.version !== 9) return defaults;
+  if (source.version !== 2 && source.version !== 3 && source.version !== 4 && source.version !== 5 && source.version !== 6 && source.version !== 7 && source.version !== 8 && source.version !== 9 && source.version !== 10) return defaults;
   const next = structuredClone(defaults);
   next.updatedAt = finiteNumber(source.updatedAt, Date.now());
   next.trailwardenName = normalizeTrailwardenName(source.trailwardenName);
@@ -88,8 +90,23 @@ export function migrateSave(input: unknown): SaveData {
     lumber: Math.max(0, Math.min(300, Math.floor(finiteNumber(source.station?.lumber, 0)))),
     lumberProgress: Math.max(0, finiteNumber(source.station?.lumberProgress, 0)),
     hunterProgress: Math.max(0, finiteNumber(source.station?.hunterProgress, 0)),
-    passiveCash: Math.max(0, Math.floor(finiteNumber(source.station?.passiveCash, 0)))
+    passiveCash: Math.max(0, Math.floor(finiteNumber(source.station?.passiveCash, 0))),
+    robotOreCash: Math.max(0, Math.floor(finiteNumber(source.station?.robotOreCash, 0)))
   };
+  const job = (value: unknown): RobotJob => typeof value === 'string' && Object.hasOwn(ROBOT_JOBS, value) ? value as RobotJob : 'idle';
+  next.robots = Array.from({ length: 6 }, (_, index) => {
+    const fallback = createRobotState(index);
+    const saved = Array.isArray(source.robots) ? source.robots[index] : null;
+    if (!saved || index >= next.upgrades.robots * 2) return fallback;
+    const quantity = (value: unknown) => Math.max(0, Math.min(10000, Math.floor(finiteNumber(value, 0))));
+    return { job: job(saved.job), pendingJob: saved.pendingJob == null ? null : job(saved.pendingJob),
+      x: Math.max(40, Math.min(9560, finiteNumber(saved.x, fallback.x))),
+      y: Math.max(40, Math.min(6160, finiteNumber(saved.y, fallback.y))),
+      wood: quantity(saved.wood), meat: quantity(saved.meat), meals: quantity(saved.meals), fishMeals: quantity(saved.fishMeals),
+      rewardRemainder: Math.max(0, Math.min(.99, finiteNumber(saved.rewardRemainder, 0))),
+      woodRemainder: Math.max(0, Math.min(.99, finiteNumber(saved.woodRemainder, 0))),
+      oreWork: Math.max(0, Math.min(9.99, finiteNumber(saved.oreWork, 0))) };
+  });
   next.tutorial = source.tutorial ?? defaults.tutorial;
   next.stats = {
     bearsDefeated: Math.max(0, Math.floor(finiteNumber(source.stats?.bearsDefeated, 0))),
