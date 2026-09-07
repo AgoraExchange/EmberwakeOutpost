@@ -3262,7 +3262,9 @@ export class Game {
     this.streamParticle(server.x, server.y - 40, customer.x, customer.y - 30,
       servingFish ? BRAND.colors.fish : BRAND.colors.gold);
 
-    this.createCashDrop(result.cashDrop);
+    // Robot takings remain collectible and survive closing before collection.
+    if (robot) this.save.station.passiveCash += result.cashDrop;
+    else this.createCashDrop(result.cashDrop);
     this.spawnGainLabel(customer.x, customer.y, `+$${result.cashDrop}`, 0x8ef0a4, 78);
     customer.state = 'taking';
     customer.timer = .3;
@@ -4474,7 +4476,7 @@ export class Game {
       return { title: 'Lumber yard', detail: `${this.save.station.lumber}/300 logs stacked across three 100-log sections`, action: 'Step onto the stand to load logs · Sell them at the Timber Post', progress: this.save.station.lumber / 300 };
     }
     if (this.save.station.passiveCash > 0 && distanceSquared(this.player.x, this.player.y, WORLD.cashZone.x, WORLD.cashZone.y) < 145 ** 2) {
-      return { title: 'Passive takings', detail: `$${this.save.station.passiveCash} earned while you were away`, action: 'Step onto the strongbox to collect', progress: 1 };
+      return { title: 'Crew takings', detail: `$${this.save.station.passiveCash} earned by your crews`, action: 'Step onto the strongbox to collect', progress: 1 };
     }
     if (this.isPlayerSafe()) return { title: 'Hearth sanctuary', detail: this.player.health < maxHealthFor(this.save.upgrades.maxHealth)
       ? `Recovering ${healingPerSecondFor(this.save.upgrades.infirmary)} HP each second` : 'Fully rested · Ready for the frostwild',

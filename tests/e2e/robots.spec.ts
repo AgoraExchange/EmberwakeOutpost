@@ -113,6 +113,14 @@ for (const fish of [false, true]) test(`robot delivers ${fish ? 'fish' : 'meat'}
   await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().customerDemand), { timeout: 30_000 }).toBe(0);
   const served = await page.evaluate(() => window.__EMBERWAKE__.getState());
   expect(served.cash).toBe(0);
-  expect(served.cashLoot.filter(drop => drop.x < 1000).reduce((sum, drop) => sum + drop.value, 0)).toBeGreaterThan(0);
+  const owed = fish ? 63 : 28;
+  expect(served.station.passiveCash).toBe(owed);
   expect(served.robots[0]!.meals + served.robots[0]!.fishMeals).toBe(0);
+  await page.getByRole('button', { name: 'Pause and settings' }).click();
+  await page.reload();
+  await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
+  expect(await page.evaluate(() => window.__EMBERWAKE__.getState().station.passiveCash)).toBe(owed);
+  await page.evaluate(() => window.__EMBERWAKE__.teleport(420, 420));
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().cash)).toBe(owed);
+  expect(await page.evaluate(() => window.__EMBERWAKE__.getState().station.passiveCash)).toBe(0);
 });
