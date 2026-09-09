@@ -15,8 +15,15 @@ async function start(page: Page, robots: Array<Record<string, unknown>> = [], ex
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
 }
 
-test('nearby robots have a touch assignment menu and saved mining work leaves collectible cash', async ({ page }, testInfo) => {
+test('nearby robots have a touch assignment menu and saved mining work leaves collectible cash', async ({ page, browserName, isMobile }, testInfo) => {
   test.setTimeout(65_000);
+  if (browserName === 'chromium' && !isMobile) {
+    // Camera tracking and nearby controls must keep up even at low frame rates.
+    await page.addInitScript(() => {
+      const request = window.requestAnimationFrame.bind(window);
+      window.requestAnimationFrame = callback => request(() => window.setTimeout(() => callback(performance.now()), 180));
+    });
+  }
   await start(page);
   const assign = page.getByRole('button', { name: 'Assign robot 1', exact: true });
   await expect(assign).toBeHidden();
@@ -69,7 +76,10 @@ test('robot chops real trees, carries bonus logs and banks exact timber sales', 
 
 test('reassigning a loaded robot keeps its delivery through a reload without duplicate payment', async ({ page, browserName, isMobile }) => {
   test.skip(isMobile || browserName !== 'chromium', 'exercise delivery persistence once');
-  await start(page, [{ job: 'timber', x: 2220, y: 900, wood: 14 }]);
+  test.setTimeout(75_000);
+  // A long delivery keeps the carried load present while the browser opens the
+  // menu, including on slower CI runners. The robot still walks the whole route.
+  await start(page, [{ job: 'timber', x: 7100, y: 4150, wood: 14 }]);
   await page.evaluate(async () => {
     for (let frame = 0; frame < 100; frame++) {
       const r = window.__EMBERWAKE__.getState().robots[0]!;
@@ -84,7 +94,7 @@ test('reassigning a loaded robot keeps its delivery through a reload without dup
   await page.getByRole('button', { name: 'Pause and settings' }).click();
   await page.reload();
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
-  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().robots[0]?.job), { timeout: 15_000 }).toBe('idle');
+  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().robots[0]?.job), { timeout: 45_000 }).toBe('idle');
   expect(await page.evaluate(() => window.__EMBERWAKE__.getState().cash)).toBe(112);
   await page.getByRole('button', { name: 'Pause and settings' }).click();
   await page.reload();

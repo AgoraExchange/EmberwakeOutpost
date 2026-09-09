@@ -3852,7 +3852,7 @@ export class Game {
   }
 
   private render(frameDelta: number): void {
-    this.updateCamera(false);
+    this.updateCamera(false, frameDelta);
     this.updateRobotControls();
     this.renderPlayer();
     this.renderEnemies();
@@ -3935,7 +3935,7 @@ export class Game {
     this.tutorialArrow.rotation = 0;
   }
 
-  private updateCamera(immediate: boolean): void {
+  private updateCamera(immediate: boolean, frameDelta: number = WORLD.fixedStep): void {
     const screenWidth = this.app.screen.width;
     const screenHeight = this.app.screen.height;
     const halfWidth = screenWidth / (2 * this.viewScale);
@@ -3951,10 +3951,11 @@ export class Game {
     const targetY = spanY <= halfHeight * 2
       ? (ISO_BOUNDS.minY + ISO_BOUNDS.maxY) / 2
       : clamp(focusY, ISO_BOUNDS.minY + halfHeight, ISO_BOUNDS.maxY - halfHeight);
-    const smoothing = immediate ? 1 : 1 - Math.exp(-9 * Math.min(.05, WORLD.fixedStep));
+    const elapsed = Math.min(WORLD.maxFrameDelta, Math.max(0, frameDelta));
+    const smoothing = immediate ? 1 : 1 - Math.exp(-9 * elapsed);
     this.camera.x += (targetX - this.camera.x) * smoothing;
     this.camera.y += (targetY - this.camera.y) * smoothing;
-    this.camera.shake = Math.max(0, this.camera.shake - 32 * WORLD.fixedStep);
+    this.camera.shake = Math.max(0, this.camera.shake - 32 * elapsed);
     const shakeX = this.camera.shake > 0 ? (Math.random() * 2 - 1) * this.camera.shake : 0;
     const shakeY = this.camera.shake > 0 ? (Math.random() * 2 - 1) * this.camera.shake : 0;
     const worldX = screenWidth / 2 - (this.camera.x + shakeX) * this.viewScale;

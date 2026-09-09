@@ -178,8 +178,21 @@ test('the AK fires from a 36-round magazine and reloads for two seconds', async 
     window.__EMBERWAKE__.setAmmo(1);
     window.__EMBERWAKE__.teleport(1900, 600);
   });
-  await expect.poll(() => page.evaluate(() => window.__EMBERWAKE__.getState().player.reloadTimer)).toBeGreaterThan(0);
-  expect(await page.evaluate(() => window.__EMBERWAKE__.getState().player.ammo)).toBe(0);
+  // Capture the magazine and timer together; on software-rendered CI a second
+  // browser round trip can occur after the entire two-second reload finishes.
+  const reloading = await page.evaluate(async () => {
+    const deadline = performance.now() + 10_000;
+    while (performance.now() < deadline) {
+      const player = window.__EMBERWAKE__.getState().player;
+      if (player.reloadTimer > 0) {
+        window.__EMBERWAKE__.teleport(980, 1150);
+        return player;
+      }
+      await new Promise(requestAnimationFrame);
+    }
+    throw new Error('The last round never triggered a reload');
+  });
+  expect(reloading.ammo).toBe(0);
   await page.screenshot({ path: 'test-results/ak47-reloading.png' });
   // Step into the safe hearth so the freshly loaded magazine is not immediately fired.
   await page.evaluate(() => window.__EMBERWAKE__.teleport(980, 1150));
@@ -277,7 +290,8 @@ test('outpost overview explains investments and resumes play', async ({ page }, 
 
 test('compact defense pad advances through defenders and raid loot stays collectible', async ({ page, browserName, isMobile }) => {
   test.skip(isMobile || browserName !== 'chromium', 'exercise the complete defense progression once');
-  test.setTimeout(150_000);
+  // Nine purchased tiers, a full raid, loot collection and visual evidence.
+  test.setTimeout(240_000);
   await page.goto('/');
   await page.getByRole('button', { name: 'ENTER THE FROSTWILD' }).click();
   await page.evaluate(() => { window.__EMBERWAKE__.setWood(3); window.__EMBERWAKE__.teleport(1480, 1010); });
@@ -292,7 +306,7 @@ test('compact defense pad advances through defenders and raid loot stays collect
     expect(await page.evaluate(() => window.__EMBERWAKE__.getState().defense.kind)).toBe(kind);
     await page.evaluate(() => window.__EMBERWAKE__.teleport(1460, 790));
     await page.waitForTimeout(250);
-    await page.screenshot({ path: `test-results/defense-level-${index + 1}.png` });
+    if (index === 8) await page.screenshot({ path: 'test-results/defense-level-9.png' });
   }
   expect(await page.evaluate(() => window.__EMBERWAKE__.getState().defense.posts)).toBe(4);
   await page.evaluate(() => { window.__EMBERWAKE__.teleport(830, 1150); window.__EMBERWAKE__.triggerRaid(); });

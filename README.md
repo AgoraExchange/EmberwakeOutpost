@@ -6,6 +6,7 @@ The game has no backend, accounts, tracking, ads, remote APIs, or paid services.
 
 ## 1.9.0 — Assignable robot workers
 
+- Camera following now uses elapsed frame time, keeping nearby interactions reachable on slower devices.
 - The Robot Foundry and its six utility workers now have illustrated sprites. Clear loading space keeps the robots and upgrade pad visible; walk nearby and tap a robot to assign or change its job.
 - Hunters attack actual bears, instantly bank 3.5× the bear's cash reward, and carry 3.5× meat to the Cookout. Loggers fell actual trees, alternate 10/11 logs per tree for an exact 3.5× yield, and sell their loads for $8 per log at the Timber Post.
 - Meal robots collect ready meat or frostfin plates and serve waiting villagers. Capacity is seven plates, or fourteen with a level-two cook; payments remain saved and collectible at the strongbox across relaunches. Ore robots travel to visible ore seams by the Salvage Rig, dig, and leave 3.5× crate-value earnings at its collection circle.
