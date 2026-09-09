@@ -32,7 +32,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
       - name: Install browser test engines
-        run: npx playwright install --with-deps chromium webkit
+        run: |
+          # Playwright brings its own browsers. The runner's unrelated Chrome
+          # apt feed can be mid-publication and fail Ubuntu dependency setup.
+          sudo mkdir -p /tmp/emberwake-unused-apt
+          for source in /etc/apt/sources.list.d/*; do
+            if [ -f "$source" ] && grep -q 'dl.google.com/linux/chrome' "$source"; then
+              sudo mv "$source" /tmp/emberwake-unused-apt/
+            fi
+          done
+          npx playwright install --with-deps chromium webkit
       - name: Verify desktop and mobile gameplay
         run: npm run test:e2e -- --project=${{ matrix.project }}
       - name: Retain browser failure evidence
